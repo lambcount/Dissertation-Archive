@@ -1,3 +1,5 @@
+using DataFrames
+include("Reservoir Model Struct.jl")
 """
     Model 3.3
     Modell 3.3 ist eine Weiterentwicklung von Modell 3.2. Es zeigt als wären gewissen Raten so langsam, dass sie aus der Simulation entfernt werden können.
@@ -7,10 +9,10 @@
     Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
     Wir betrachten Modell 3.2 als Weiterentwicklung von Modell 3.1.
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.2. Modell 2.2 versagt am deutlichsten bei der Beschreibung
+    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
     der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
     es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.2 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
+    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
     der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
     Entartung der Moden.
 """
@@ -874,10 +876,10 @@ end
     Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
     Wir betrachten Modell 3.2 als Weiterentwicklung von Modell 3.1.
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.2. Modell 2.2 versagt am deutlichsten bei der Beschreibung
+    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
     der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
     es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.2 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
+    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
     der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
     Entartung der Moden.
 """
@@ -1742,10 +1744,10 @@ end
 
 """
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.2. Modell 2.2 versagt am deutlichsten bei der Beschreibung
+    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
     der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
     es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.2 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
+    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
     der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
     Entartung der Moden.
 """
@@ -2582,6 +2584,10 @@ function blackbox_model_3_1(
 end
 
 """
+    Modell 2.3
+    Aus dem Wellenlängenscan geht hervor, dass wenn wir "rmin" pumpen, wir nicht diskret rmina pumpen, sondern auch gleichzeitig rminb. Weswegen hier ein zusätzlicher 
+    Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
+    Wir betrachten Modell 2.3 als Weiterentwicklung von Modell 2.2.
     Modell 2.2:
     Beschreibt die Dynamik aller Moden, welche eine kontinuierliche "Anderung in Experimenten (ODT,UDT,HT)
     aufweisen. Die Moden sind: rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa.
@@ -2589,7 +2595,7 @@ end
     Jede Mode kann relaxieren p[3:9] oder mit den anderen Moden wechselwirken p[10:30].
     Weiterhin kann die Entartung der Moden mit p[31:37] eingestellt werden.
 """
-function model2_2(
+function model2_3(
     t,
     p::Vector{T};
     mode = :dmin,
@@ -2612,82 +2618,85 @@ function model2_2(
     #---------------------------------------------------------
     # Laser parameters
     α        = p[1]   # amplitude scaling of laser pulse
-    t_0      = p[2]   # center of the Gaussian pulse
+    α_rb     = 0   # amplitude scaling of laser pulse for rminb
+    if mode == :rmin
+        α_rb = p[2]
+    end
+    t_0      = p[3]   # center of the Gaussian pulse
     σ        = 6.67   # fixed pulse width (was hard-coded)
 
     # Relaxation rates (to ground state) 
-    relax_rplus       = 1/p[3]
-    relax_dminusomega = 1/p[4]
-    relax_dfr         = 1/p[5]
-    relax_dminus      = 1/p[6]
-    relax_rfr         = 1/p[7]
-    relax_rminusb     = 1/p[8]
-    relax_rminusa     = 1/p[9]
+    relax_rplus       = 1/p[4]
+    relax_dminusomega = 1/p[5]
+    relax_dfr         = 1/p[6]
+    relax_dminus      = 1/p[7]
+    relax_rfr         = 1/p[8]
+    relax_rminusb     = 1/p[9]
+    relax_rminusa     = 1/p[10]
 
     # Coupling constants between states (original indexing)
     # For simplicity, I'll rename them 'k_xy' to emphasize
     # they are coupling rates. Each will get multiplied by
     # the product of degeneracies g_x*g_y for symmetrical flow.
 
-    k_rplus_dminusomega   = 1/p[10]
-    k_rplus_dfr           = 1/p[11]
-    k_rplus_dminus        = 1/p[12]
-    k_rplus_rfr           = 1/p[13]
-    k_rplus_rminusb       = 1/p[14]
-    k_rplus_rminusa       = 1/p[15]
+    k_rplus_dminusomega   = 1/p[11]
+    k_rplus_dfr           = 1/p[12]
+    k_rplus_dminus        = 1/p[13]
+    k_rplus_rfr           = 1/p[14]
+    k_rplus_rminusb       = 1/p[15]
+    k_rplus_rminusa       = 1/p[16]
 
     k_dminusomega_rplus   = k_rplus_dminusomega
-    k_dminusomega_dfr     = 1/p[16]
-    k_dminusomega_dminus  = 1/p[17]
-    k_dminusomega_rfr     = 1/p[18]
-    k_dminusomega_rminusb = 1/p[19]
-    k_dminusomega_rminusa = 1/p[20]
+    k_dminusomega_dfr     = 1/p[17]
+    k_dminusomega_dminus  = 1/p[18]
+    k_dminusomega_rfr     = 1/p[19]
+    k_dminusomega_rminusb = 1/p[20]
+    k_dminusomega_rminusa = 1/p[21]
 
     k_dfr_rplus           = k_rplus_dfr
     k_dfr_dminusomega     = k_dminusomega_dfr
-    k_dfr_dminus          = 1/p[21]
-    k_dfr_rfr             = 1/p[22]
-    k_dfr_rminusb         = 1/p[23]
-    k_dfr_rminusa         = 1/p[24]
+    k_dfr_dminus          = 1/p[22]
+    k_dfr_rfr             = 1/p[23]
+    k_dfr_rminusb         = 1/p[24]
+    k_dfr_rminusa         = 1/p[25]
 
     k_dminus_rplus        = k_rplus_dminus
     k_dminus_dminusomega  = k_dminusomega_dminus
     k_dminus_dfr          = k_dfr_dminus
-    k_dminus_rfr          = 1/p[25]
-    k_dminus_rminusb      = 1/p[26]
-    k_dminus_rminusa      = 1/p[27]
+    k_dminus_rfr          = 1/p[26]
+    k_dminus_rminusb      = 1/p[27]
+    k_dminus_rminusa      = 1/p[28]
 
-    k_rfr_rplus           = k_rplus_rfr
-    k_rfr_dminusomega     = k_dminusomega_rfr
-    k_rfr_dfr             = k_dfr_rfr
-    k_rfr_dminus          = k_dminus_rfr
-    k_rfr_rminusb         = 1/p[28]
-    k_rfr_rminusa         = 1/p[29]
+    k_rfr_rplus           = k_rplus_rfr       #1/p[29]
+    k_rfr_dminusomega     = k_dminusomega_rfr #1/p[30]
+    k_rfr_dfr             = k_dfr_rfr         #1/p[31]
+    k_rfr_dminus          = k_dminus_rfr      #1/p[32]
+    k_rfr_rminusb         = 1/p[29]
+    k_rfr_rminusa         = 1/p[30]
 
     k_rminusb_rplus       = k_rplus_rminusb
     k_rminusb_dminusomega = k_dminusomega_rminusb
     k_rminusb_dfr         = k_dfr_rminusb
     k_rminusb_dminus      = k_dminus_rminusb
-    k_rminusb_rfr         = k_rfr_rminusb
-    k_rminusb_rminusa     = 1/p[30]
+    k_rminusb_rfr         = k_rfr_rminusb    #1/p[35]
+    k_rminusb_rminusa     = 1/p[31]
 
     k_rminusa_rplus       = k_rplus_rminusa
     k_rminusa_dminusomega = k_dminusomega_rminusa
     k_rminusa_dfr         = k_dfr_rminusa
     k_rminusa_dminus      = k_dminus_rminusa
-    k_rminusa_rfr         = k_rfr_rminusa
+    k_rminusa_rfr         = k_rfr_rminusa    #1/p[37]
     k_rminusa_rminusb     = k_rminusb_rminusa
 
     # 3) Degeneracy of the states:
     # p[31] is g_d, while g_r, g_d_omega are hard-coded to 1 below
-    g_rplus   = p[31]
-    g_d_omega = p[32]
-    g_dfr     = p[33]
-    g_dminus  = p[34]
-    g_rfr     = p[35]
-    g_rminb   = p[36]
-    g_rmina   = p[37]
-
+    g_rplus   = 1.0 #p[32]
+    g_d_omega = p[33]
+    g_dfr     = p[34]
+    g_dminus  = p[35]
+    g_rfr     = 1.0 #p[36]
+    g_rminb   = p[37]
+    g_rmina   = 2.0 #p[38]
 
     # We'll store them in an array so we can do bleach:
     # State order: 
@@ -2705,14 +2714,14 @@ function model2_2(
     #---------------------------------------------------------
         pump_first = α * f_g[1] * dt
     # Initially, one state is pumped:
-        Popu[1,1] = (mode == :rplus)     ? 1/G[1] * pump_first : 0
-        Popu[1,2] = (mode == :dminomega) ? 1/G[2] * pump_first : 0
-        Popu[1,3] = (mode == :dfr)       ? 1/G[3] * pump_first : 0
-        Popu[1,4] = (mode == :dmin)      ? 1/G[4] * pump_first : 0
-        Popu[1,5] = (mode == :rfr)       ? 1/G[5] * pump_first : 0
-        Popu[1,6] = (mode == :rminb)     ? 1/G[6] * pump_first : 0
-        Popu[1,7] = (mode == :rmin)      ? 1/G[7] * pump_first : 0
-        control[1,1] = pump_first
+        Popu[1,1] = (mode == :rplus)     ? 1/G[1] * pump_first         : 0
+        Popu[1,2] = (mode == :dminomega) ? 1/G[2] * pump_first         : 0
+        Popu[1,3] = (mode == :dfr)       ? 1/G[3] * pump_first         : 0
+        Popu[1,4] = (mode == :dmin)      ? 1/G[4] * pump_first         : 0
+        Popu[1,5] = (mode == :rfr)       ? 1/G[5] * pump_first         : 0
+        Popu[1,6] = (mode == :rmin)      ? 1/G[6] * α_rb * f_g[1] * dt : 0
+        Popu[1,7] = (mode == :rmin)      ? 1/G[7] * pump_first         : 0
+        control[1,1] = pump_first + α_rb * f_g[1] * dt 
         control[1,2] = G[1] * Popu[1,1] + (
             + G[2] * Popu[1,2] 
             + G[3] * Popu[1,3] 
@@ -2930,7 +2939,8 @@ function model2_2(
         #-------------
         # State 6: rminusb
         #-------------
-        pump_rminb = (mode == :rminb) ? laser_here : 0
+        #pump_rminb = (mode == :rminb) ? laser_here : 0
+        pump_rminb  = α_rb * f_g[i] * dt
         Popu[i,6] = Popu[i-1,6] + 1/G[6] * (
 
             # Pumping if this mode is :rminb
@@ -3005,7 +3015,7 @@ function model2_2(
         # Control
         #-------------
 
-        control[i,1] = control[i-1,1] + laser_here * dt
+        control[i,1] = control[i-1,1] + (laser_here + α_rb * f_g[i]) * dt
         control[i,2] = G[1] * Popu[i,1] + (
                G[2] * Popu[i,2] 
              + G[3] * Popu[i,3] 
@@ -3036,138 +3046,130 @@ function model2_2(
         Bleach[:,k] = (1 .- 2 .* G[k] .* Popu[:,k]) .^2
     end
 
-    #---------------------------------------------------------
-    # 9) Return the results in a struct or dictionary
-    #---------------------------------------------------------
-    # -- A) Puls-Parameter
-     df_puls = DataFrame(
-        alpha = p[1],
-        t_0   = p[2]
-    )
+# ------------------------------------------------------
+    # 9) Dictionary aufbauen (DataFrames, etc.)
+    # ------------------------------------------------------
 
-    # -- B) Relaxations-Parameter als DataFrame
-    #    Zuordnung: p[3] -> rplus, p[4] -> dminusomega, ...
+    # A) Puls
+    df_puls = DataFrame(alpha = p[1],alpha_rb = p[2], t_0 = p[3])
+
+    # B) Relaxation
+    #    p[3..9], 7 Parameter => rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa
     modes_relax = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_relax = DataFrame(
-        Mode = modes_relax,
-        Wert_ps = p[3:9]  # p[3] bis p[9]
+        Mode    = modes_relax,
+        Wert_ps = p[4:10]
     )
 
-    # -- C) Entartung (Degeneracies) als DataFrame
-    #    Zuordnung: p[31] -> rplus, p[32] -> dminusomega, ...
+    # C) Entartung
+    #    p[37..43] => 7 Parameter
     modes_deg = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_entartung = DataFrame(
         Mode = modes_deg,
-        g    = p[31:37]  # p[31] bis p[37]
+        g    = G
     )
 
-    # -- D) Kopplungen:
-    #    Wir listen alle k_x_y auf, mit Index = [10..30].
-    #    k_rplus_dminusomega = 1/p[10], also Parameter p[10], usw.
-    #    Für jede Kopplung (x,y,pIndex) legen wir zwei Zeilen an:
-    #       t_x_y   => p[pIndex],
-    #       t_y_x   => p[pIndex].
-    #    (Da rückwärts = vorwärts in deinem Modell.)
-    #
-    #    Wichtig: "k_" wird durch "t_" ersetzt.
-
-    # Hilfstabelle, die eindeutig zuordnet:
-    # ( :rplus, :dminusomega, 10 ) bedeutet,
-    #    k_rplus_dminusomega => 1/p[10] in deinem Modell
-    #    Aber wir wollen "t_rplus_dminusomega" => p[10] in DataFrame
-    #    analog t_dminusomega_rplus => p[10].
+    # D) Kopplungen (jetzt mit asymmetrischen Einträgen)
+    #    Wir müssen nun Vorwärts- und Rückwärts-Parameter explizit angeben.
+    #    Syntax: (x, y, fwd_idx, bwd_idx)
+    #      => t_x_y   => p[fwd_idx]
+    #      => t_y_x   => p[bwd_idx]
     couplings = [
-        (:rplus,       :dminusomega, 10),
-        (:rplus,       :dfr,         11),
-        (:rplus,       :dminus,      12),
-        (:rplus,       :rfr,         13),
-        (:rplus,       :rminusb,     14),
-        (:rplus,       :rminusa,     15),
-        (:dminusomega, :dfr,         16),
-        (:dminusomega, :dminus,      17),
-        (:dminusomega, :rfr,         18),
-        (:dminusomega, :rminusb,     19),
-        (:dminusomega, :rminusa,     20),
-        (:dfr,         :dminus,      21),
-        (:dfr,         :rfr,         22),
-        (:dfr,         :rminusb,     23),
-        (:dfr,         :rminusa,     24),
-        (:dminus,      :rfr,         25),
-        (:dminus,      :rminusb,     26),
-        (:dminus,      :rminusa,     27),
-        (:rfr,         :rminusb,     28),
-        (:rfr,         :rminusa,     29),
-        (:rminusb,     :rminusa,     30),
+        (:rplus,       :dminusomega, 11, 11),
+        (:rplus,       :dfr,         12, 12),
+        (:rplus,       :dminus,      13, 13),
+        (:rplus,       :rfr,         14, 14),  # asym
+        (:rplus,       :rminusb,     15, 15),
+        (:rplus,       :rminusa,     16, 16),
+
+        (:dminusomega, :dfr,         17, 17),
+        (:dminusomega, :dminus,      18, 18),
+        (:dminusomega, :rfr,         19, 19),  # asym
+        (:dminusomega, :rminusb,     20, 20),
+        (:dminusomega, :rminusa,     21, 21),
+
+        (:dfr,         :dminus,      22, 22),
+        (:dfr,         :rfr,         23, 23),  # asym
+        (:dfr,         :rminusb,     24, 24),
+        (:dfr,         :rminusa,     25, 25),
+
+        (:dminus,      :rfr,         26, 26),  # asym
+        (:dminus,      :rminusb,     27, 27),
+        (:dminus,      :rminusa,     28, 28),
+
+        (:rfr,         :rminusb,     29, 29),  # asym
+        (:rfr,         :rminusa,     30, 30),  # asym
+
+        (:rminusb,     :rminusa,     31, 31)
     ]
 
-    # Alle Kopplungen in einer "All"-Tabelle:
     rows_all = Vector{Dict{Symbol,Any}}()
-    for (x,y, idx) in couplings
-        # Vorwärts
+    for (x, y, fwd_idx, bwd_idx) in couplings
         push!(rows_all, Dict(
-            :param_name => "t_$(x)_$(y)",  # z.B. "t_rplus_dminusomega"
-            :value      => p[idx]
+            :param_name => "t_$(x)_$(y)",
+            :value      => p[fwd_idx],
+            :ratio     => p[fwd_idx]/p[bwd_idx]
+
         ))
-        # Rückwärts
         push!(rows_all, Dict(
             :param_name => "t_$(y)_$(x)",
-            :value      => p[idx]
+            :value      => p[bwd_idx],
+            :ratio     => p[bwd_idx]/p[fwd_idx]
         ))
     end
     df_koppl_all = DataFrame(rows_all)
 
-    # Nun zusätzlich pro Mode eine gefilterte Tabelle,
-    # in der nur Kopplungen auftauchen, in denen die gegebene Mode
-    # entweder x oder y ist.
+    # pro Mode eine gefilterte Kopplungstabelle
     function df_koppl_for_mode(m::Symbol)
-        rows = Vector{Dict{Symbol,Any}}()
-        for (x,y, idx) in couplings
+        subrows = Vector{Dict{Symbol,Any}}()
+        for (x,y, fwd_idx, bwd_idx) in couplings
             if x == m || y == m
-                # vorwärts
-                push!(rows, Dict(
+                # x->y
+                push!(subrows, Dict(
                     :param_name => "t_$(x)_$(y)",
-                    :value      => p[idx]
+                    :value      => p[fwd_idx],
+                    :ratio     => p[fwd_idx]/p[bwd_idx]
                 ))
-                # rückwärts
-                push!(rows, Dict(
+                # y->x
+                push!(subrows, Dict(
                     :param_name => "t_$(y)_$(x)",
-                    :value      => p[idx]
+                    :value      => p[bwd_idx],
+                    :ratio     => p[bwd_idx]/p[fwd_idx]
                 ))
             end
         end
-        return DataFrame(rows)
+        return DataFrame(subrows)
     end
 
-    # Jetzt bauen wir ein Dict daraus, wo Key=Symbol der Mode ist und Value = DataFrame
     modes_all = [:rplus, :dminusomega, :dfr, :dminus, :rfr, :rminusb, :rminusa]
-    dict_koppl = Dict(
-        :All => df_koppl_all
-    )
-    # jede Mode einzeln ergänzen
+    dict_koppl = Dict(:All => df_koppl_all)
     for m in modes_all
         dict_koppl[m] = df_koppl_for_mode(m)
     end
 
-    # Gesamtstruktur
+    # Gesamtdictionary
     outputDict = Dict(
+        :Model       => "Model 2.3",
         :fitted_mode => mode,
         :Parameter   => Dict(
-            :All         => p,
-            :Puls        => df_puls,
-            :Relaxation  => df_relax,
-            :Entartung   => df_entartung,
-            :Kopplung    => dict_koppl
+            :All        => p,
+            :Puls       => df_puls,
+            :Relaxation => df_relax,
+            :Entartung  => df_entartung,
+            :Kopplung   => dict_koppl
         ),
-        :Model       => "Model 2.2",
         :Zeitschritt => dt
     )
 
-    # Return 
-    return ReservoirModel(Popu, Bleach, p, t, mode, control, outputDict)
+    # ------------------------------------------------------
+    # 10) Rückgabe als ReservoirModel (inkl. Dictionary)
+    # ------------------------------------------------------
+    # Falls dein ReservoirModel-Struct kein Dictionary-Feld hat,
+    # kannst du hier natürlich nur das Modell und das Dict getrennt zurückgeben.
+    return ReservoirModel(Popu, Bleach, p, t, mode,control, outputDict)
 end
 
-
-function blackbox_model_2_2(
+function blackbox_model_2_3(
     time_dmin,traces_dmin,use_dmin,
     time_rfr,traces_rfr,use_rfr,
     time_rmin,traces_rmin,use_rmin,
@@ -3175,30 +3177,80 @@ function blackbox_model_2_2(
     dt=0.1
 )
     # 1) Define priors
-    initial_params = vcat(
-        [0.13, 0.0], # α_dmin, t_0_dmin
-        [0.075, 5.0], # α_rfr, t_0_rfr
-        [0.2, -7.0], # α_rmin, t_0_rmin
-        fill(500,7), # 7 relaxation_params   
-        fill(500,21), # 21 kopplungs_params
-        fill(2.0,7)
-    )
+    initial_params = [    
+        0.608,  # α_dmin
+        1.695,  # α_rb_dmin
+        -0.79,  # t_0_dmin
+        1.753,  # α_rfr
+        0.352,  # α_rb_rfr
+        -5.20,  # t_0_rfr
+        0.061,  # α_rmin
+        4.998,  # α_rb_rmin
+        -3.67,  # t_0_rmin
+        11231,  # relax_rplus
+        10348,  # relax_dminusomega
+        9855,   # relax_dfr
+        18263,  # relax_dminus
+        3.040,  # relax_rfr
+        9188,   # relax_rminusb
+        19.09,  # relax_rminusa
+        14462,  # rplus_dminusomega
+        9107,   # rplus_dfr
+        14.79,  # rplus_dminus
+        11972,  # rplus_rfr
+        3.606,  # rplus_rminusb
+        14049,  # rplus_rminusa
+        153.4,  # dminusomega_dfr
+        311.5,  # dminusomega_dminus
+        15271,  # dminusomega_rfr
+        36.73,  # dminusomega_rminusb
+        13196,  # dminusomega_rminusa
+        813.9,  # dfr_dminus
+        19927,  # dfr_rfr
+        15704,  # dfr_rminusb
+        17640,  # dfr_rminusa
+        1376,   # dminus_rfr
+        12125,  # dminus_rminusb
+        595.7,  # dminus_rminusa
+        14.65,  # rfr_rminusb
+        349.1,  # rfr_rminusa
+        17432,  # rminusb_rminusa
+        4.525,  # g_rplus
+        4.591,  # g_dminomega
+        8.731,  # g_dfr
+        16.05,  # g_dminus
+        1.980,  # g_rfr
+        1.403,  # g_rminusb
+        1.519,  # g_rminusa 
+    ]
     # 2) Define the search space
     lb = vcat(
-        [0.0, -20.0], # α_dmin, t_0_dmin
-        [0.0, -20.0], # α_rfr, t_0_rfr
-        [0.0, -20.0], # α_rmin, t_0_rmin
+        [0.0, 0.0, -20.0], # α_dmin, α_rb_dmin, t_0_dmin
+        [0.0, 0.0, -20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
+        [0.0, 0.0, -20.0], # α_rmin, α_rb_rmin, t_0_rmin
         fill(1.0,7), # relaxation_params   
         fill(1.0,21), # kopplungs_params
-        fill(1.0,7) # g_params
+        1.0,              # g_rplus
+        1.0,             # g_dminomega
+        1.0,             # g_dfr
+        16.0,             # g_dminus
+        1.0,              # g_rfr
+        1.0,              # g_rminusb
+        1.0               # g_rminusa
     )
     ub = vcat(
-        [1.0, 20.0], # α_dmin, t_0_dmin
-        [3.0, 20.0], # α_rfr, t_0_rfr
-        [1.0, 20.0], # α_rmin, t_0_rmin
+        [5.0, 5.0, 20.0], # α_dmin, α_rb_dmin, t_0_dmin
+        [5.0, 5.0, 20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
+        [5.0, 5.0, 20.0], # α_rmin, α_rb_rmin, t_0_rmin
         fill(20000.0,7), # relaxation_params   
         fill(20000.0,21), # kopplungs_params
-        fill(17.0,7) # g_params
+        5.0,              # g_rplus
+        17.0,             # g_dminomega
+        17.0,             # g_dfr
+        17.0,             # g_dminus
+        5.0,              # g_rfr
+        17.0,              # g_rminusb
+        2.0               # g_rminusa
     )
     # 3) Construct time points for each mode
     t_model_dmin = collect(time_dmin[1]:dt:time_dmin[end])
@@ -3209,34 +3261,34 @@ function blackbox_model_2_2(
         p::Vector{Float64}
     )
         # 1) Unpack the parameter vector
-        α_dmin  = p[1];  t0_dmin  = p[2]
-        α_rfr   = p[3];  t0_rfr   = p[4]
-        α_rmin  = p[5];  t0_rmin  = p[6]
+        α_dmin  = p[1]; α_rb_dmin  = p[2];  t0_dmin  = p[3]
+        α_rfr   = p[4]; α_rb_rfr   = p[5];  t0_rfr   = p[6]
+        α_rmin  = p[7]; α_rb_rmin  = p[8];  t0_rmin  = p[9]
 
-        relax_p = p[7:13]      # 7 relaxation
-        koppl_p = p[14:34]     # 21 couplings
-        g     = p[35:end]      # 5 degeneracy
+        relax_p = p[10:16]      # 7 relaxation
+        koppl_p = p[17:37]     # 21 couplings
+        g     = p[38:end]      # 7 degeneracy
 
         # 2) Construct the model
-        model_dmin = model2_2(
+        model_dmin = model2_3(
             t_model_dmin,
-            vcat(α_dmin, t0_dmin, relax_p, koppl_p, g),
+            vcat(α_dmin,α_rb_dmin, t0_dmin, relax_p, koppl_p, g),
             mode = :dmin,
             dt=dt
         )
         # We'll use only a subset of the excited states since not all modes show a continous change
         model_dmin_used = model_dmin.Bleach[:, use_dmin]
-        model_rfr = model2_2(
+        model_rfr = model2_3(
             t_model_rfr,
-            vcat(α_rfr, t0_rfr, relax_p, koppl_p, g),
+            vcat(α_rfr, α_rb_rfr, t0_rfr, relax_p, koppl_p, g),
             mode = :rfr,
             dt=dt
         )
         # We'll use only a subset of the excited states since not all modes show a continous change
         model_rfr_used = model_rfr.Bleach[:, use_rfr]
-        model_rmin = model2_2(
+        model_rmin = model2_3(
             t_model_rmin,
-            vcat(α_rmin, t0_rmin, relax_p, koppl_p, g),
+            vcat(α_rmin,α_rb_rmin, t0_rmin, relax_p, koppl_p, g),
             mode = :rmin,
             dt=dt
         )
@@ -3272,14 +3324,15 @@ function blackbox_model_2_2(
         end
         # 5) Select time steps without coherence artifact in rfr
         selected_idx_rfr = setdiff(1:size(time_rfr,1),last(coha)[1])
-        selected_time_rfr = deepcopy(time_rfr[selected_idx_rfr])
+        selected_time_rfr = time_rfr[selected_idx_rfr]
+
         # 6) Weights
         w_dmin = ones(size(pred_dmin))
         w_pertrace_dmin = [
             5.0,  # rplus
-            1.0,  # rfr
-            1.0,  # rminusb
-            5.0   # rminusa
+            5.0,  # rfr
+            2.0,  # rminusb
+            6.0   # rminusa
 
         ]
         for m in 1:size(w_dmin,1)
@@ -3308,8 +3361,8 @@ function blackbox_model_2_2(
         w_pertrace_rmin = [
             5.0,  # rplus
             1.0,  # dminusomega
-            1.0,  # rfr
-            1.0,  # rminusb
+            7.0,  # rfr
+            2.0,  # rminusb
             5.0   # rminusa
         ]
         for m in 1:size(w_rmin,1)
@@ -3318,11 +3371,23 @@ function blackbox_model_2_2(
             end
         end
         
+        
         # 6) Data likelihood
-        cost_dmin = sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
-        cost_rfr =  sum(w_rfr  .* (traces_rfr - pred_rfr).^2)
-        cost_rmin = sum(w_rmin .* (traces_rmin - pred_rmin).^2)
-        total_cost = cost_dmin + cost_rfr + cost_rmin
+        length_dmin = length(time_dmin)
+        length_rfr = length(time_rfr)
+        length_rmin = length(time_rmin)
+        norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
+        norm_weight ./= maximum(norm_weight)
+        cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
+        cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
+        cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
+        # 7) Penaltys
+        max_P = 0.1
+        # Squared sum over all Poplulation timesteps which are above the threshold
+        P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
+            norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
+            norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
+        total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
 
         return total_cost
     end
@@ -3330,14 +3395,11 @@ function blackbox_model_2_2(
 
     result = bboptimize(
         cost, # cost functionw_
-        #initial_params;          # initial guess
-        [0.42931043246275824, -8.146, 0.2863252315666348, -6.6, 0.32853329837264816, -5.572319999012165, 845.1397263180909, 181.77299824914687, 364.47593379263895, 51.88005710270164, 1731.8185341148842, 692.6863710034145, 382.27783620987833, 1260.8989693159294, 423.07198576473127, 1188.2549219347056, 2066.7479200695866, 1.0898267697002924, 1358.1301625942042, 1.04165287690823966, 1887.2648541668257, 720.0502887648229, 1217.8148634149704, 743.2048836079019, 951.4914851184341, 14.89227367991587, 1582.2929493340866, 224.00668662027235, 49.359739628032216, 311.5398513802186, 180.13303255017343, 1.00990611155797902, 1.00110428169553246, 149.12608088781172, 2.3867006900820544, 11.335361158399444, 16.99947051974148, 5.396202493170724, 1.0000003220906513, 4.143117000442034, 1.7180100885473548],
-        #[0.451511, 0.155268, 0.320754, 8.95625, 0.464752, -3.83644, 34.7093, 1235.34, 397.267, 940.581, 2086.29, 836.934, 27.9323, 0.105189, 1460.91, 601.86, 853.731, 775.261, 567.368, 1479.01, 2155.82, 1817.02, 0.103642, 874.106, 0.16992, 927.949, 26.9699, 273.941, 1590.06, 1248.41, 2351.63, 0.106644, 0.361485, 1044.54, 2.09593, 7.48442, 17.0, 16.9882, 1.00408, 3.21444, 1.44737],
-        #[0.402576, -15.0, 0.306215, 14.1604, 0.391271, -4.90299, 350.022, 119.957, 640.174, 267.288, 732.974, 1491.4, 549.259, 1.93351, 1.25758, 142.866, 660.834, 1006.69, 593.691, 762.518, 577.137, 896.104, 938.247, 1469.86, 487.144, 5.15297, 630.948, 266.348, 420.879, 487.044, 733.371, 1.41609, 690.943, 1.0, 2.34514, 9.05271, 17.0, 17.0, 1.0, 3.64803, 1.48169],
+        initial_params;          # initial guess
         SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)],
-        Method       = :dxnes  ,   # or :cmaes, :genetic, etc.
+        Method       = :dxnes,#:adaptive_de_rand_1_bin_radiuslimited ,   # or :cmaes, :genetic, etc.
         #NThreads=Threads.nthreads()-1,
-        MaxSteps     = 50_000, # or some large budget
+        MaxSteps     = 100_000, # or some large budget
         PopulationSize = 1_000,  # can try bigger for better coverage
         TraceMode    = :verbose 
     )
@@ -3347,32 +3409,32 @@ function blackbox_model_2_2(
     # 7) Extract the parameters
         ## Pumppulse
             ### dmin
-                pulse_params_dmin  =  best_candidate(result)[1:2]
+                pulse_params_dmin  =  best_candidate(result)[1:3]
             ### rfr
-                pulse_params_rfr  =  best_candidate(result)[3:4]
+                pulse_params_rfr  =  best_candidate(result)[4:6]
             ### rmin
-                pulse_params_rmin  =  best_candidate(result)[5:6]
+                pulse_params_rmin  =  best_candidate(result)[7:9]
         ## Relaxation
-            relaxation_params =  best_candidate(result)[7:13]
+            relaxation_params =  best_candidate(result)[10:16]
         ## Kopplung
-            kopplungs_params = best_candidate(result)[14:34]
+            kopplungs_params = best_candidate(result)[17:37]
         ## Degeneracy
-            g = best_candidate(result)[35:end]
+            g = best_candidate(result)[38:end]
     # 8) Create the model
 
-    best_model_dmin  = model2_2(
+    best_model_dmin  = model2_3(
         t_model_dmin,
         vcat(pulse_params_dmin,relaxation_params,kopplungs_params,g),
         mode=:dmin,
         dt=dt
     )
-    best_model_rfr  = model2_2(
+    best_model_rfr  = model2_3(
         t_model_rfr,
         vcat(pulse_params_rfr,relaxation_params,kopplungs_params,g),
         mode=:rfr,
         dt=dt
     )
-    best_model_rmin  = model2_2(
+    best_model_rmin  = model2_3(
         t_model_rmin,
         vcat(pulse_params_rmin,relaxation_params,kopplungs_params,g),
         mode=:rmin,
@@ -3432,4 +3494,19 @@ function time_weight(t;
     else
         return 1.0   # normal weight for later times
     end
+end
+
+
+"""
+Gauss Function: \\
+function gauss(p,t) \\   
+    σ,t_0 = p \\
+    1/(σ*sqrt(2π)) * exp(-(t-t_0)^2/(2σ^2)) \\
+julia > t = collect(-10:0.1:10) \\
+julia > f_g = [gauss([1,0],_t) for _t in t] 
+"""
+function gauss(t,p::AbstractVector{T})  where T
+    σ,t_0 = p
+    
+	return 1.0 / (σ * sqrt(2π)) * exp.(-(t - t_0)^2 / (2σ^2))
 end

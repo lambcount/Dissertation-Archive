@@ -1,26 +1,27 @@
 # Dissertation-Archive
 
-    Im Folgenden werden die Daten und Modelle, welche ich, meiner Arbeit von mir (DuEPublico Link) vorgestellt habe, archiviert. 
-    Das Golgende Repository ist auch auch der Cern eigenen Cloud bereitgestellt. (DOI:)
-    Alle relevanten Parameter meiner Spektren sind die HDF5 Dateien unter Data-> zu finden. Dort sind ebenfalls die in der Arbeit dargestellten Fits 
-    bereitgestellt. Die relevanten parameter f"uer die Anfertigung dieser sind dort ebvenfalls enthalten.
-    Der in Code -> enthaltene Programmcode wurde mit der Julia Version 1.9.4 angefertigt.
-    Im Folgenden gebe ich eine kurzes Tutorial wie einzelnen Darstellungen angefertigt wurden.
+This repository contains the data and models presented in my dissertation (accessible via [DuEPublico link]).
+The entire repository is also archived on CERN's cloud storage (DOI: ).
+
+All relevant parameters and spectra data can be found in HDF5 files under the `Data/` directory, alongside the corresponding fitting results discussed in the dissertation. Parameters relevant for reproducing these fits are also included in these files.
+
+The source code provided under the `Code/` directory was developed using Julia version 1.9.4.
+
+Below you can find a brief tutorial detailing how to reproduce the presented analyses and models.
 
 ## Tutorial
 
-### Aktiviere das Julia-Eviroment
+### Activate the Julia Environment
 
-    Alle f"ur diese Arbeit verwendeten Pakete sind Maninfest.toml file abgespeichert. Das Enviroment
-    kann folgenderma"sen aktiviert werden. In Julia in den Ordner "Code" navigieren. Dann:
+All Julia packages used for this project are stored in the provided `Manifest.toml.`
+Activate the Julia environment by navigating into the `Code/` folder and running:
 
 ```julia
     julia> using Pkg
     julia> Pkg.activate(".")
 ```
 
-    Wird das Enviroment das 1. Mal initilasiert so m"ussen alle erforderlichen Pakete zun"achst 
-    installiert werden. Dazu:
+If you initialize this environment for the first time, you must install all required packages using:
 
 ```julia
     julia> using Pkg
@@ -28,10 +29,9 @@
     julia> Pkg.instantiate()
 ```
 
-### Experimente Laden
+### Loading Experiment Data
 
-    Die durchgef"uhrten Experiment sind unter Data-> zu finden. Alle Experimente sind als HDF5 Dateien 
-    gespeichert und k"onnen wie folgt geladen werden.
+All experimental data is stored in the `Data/` directory. The data is provided as HDF5 files, which can be loaded as follows:
 
 ```julia
     julia> using HDF5
@@ -40,12 +40,11 @@
         "Fitting" => Dict{String, Any}
         "Data"    => Dict{String, Any}
 ```
+Each HDF5 file contains the spectral data (`"Data"`) and the corresponding fitting results (`"Fitting"`). The fitting results were obtained using the `fit_signal_const_ref_attenuation` function provided in `Code/SFG.jl`.
 
-   In dieser Datei sind sowohl die Spektren Informationen ("Data") als auch die Anpassungen ("Fitting").
+In some fits, certain attenuation parameters were held constant (not varied); these are documented under attributes of `"Fitting"`.
 
-   Die Anpassungen wurden mithilfe der Funktion "fit_signal_const_ref_attenuation" erhalten. Welche
-   in Code->SFG.jl enthalten ist. F"ur manche Anpassungen wurden verschiedenene 
-   Abschw"achungen nicht varriert. Diese sind in der Datei unter den Attributen von "Fitting"->" zu finden.
+Example workflow to load data and fitting parameters:
 
 ```julia
     julia> using HDF5,LsqFit
@@ -56,15 +55,18 @@
     julia> hold = [x in hold_modes ? 1 : 0 for x in modes]
     julia> fitted_data = fit_signal_const_ref_attenuation(ref_spectrum,data,hold=hold)
 ```
+The attenuations extracted from `fitted_data` are already stored under `["Fitting"]["Attenuation"]` within the respective HDF5 files.
 
-    Aus fitted_data k"onnen dann die Abschw"achungen extrahiert werden. Diese sind jedoch bereits unter Fitting->Attenuation gespeichert.
+### Models 
 
-### Modelle 
+The Julia code used for the models described in my dissertation is provided in `Code/Models.jl`. These models were optimized using a global optimization algorithm provided by the `BlackBoxOptim.jl` package.
 
-    F"ur die in meiner Arbeit verwendeten Modelle wurde der entsprechende Code in Code->Models.jl verwendet. 
-    Diese Modelle wurden mit einem globalen Optimierer aus dem BlackBoxOptim.jl Paket optimiert. 
-    Im Folgenden wird ein Beispiel f"ur den Fit des Modell 3 an die zuvor bestimmten Absch"w"achungen gegeben. Unter "sel" wurden die in der Arbeit er"wahnten Transienten der Moden ausge"w"ahlt, welche keine Signalerh"ohung und einen kontinuierlichen Verlauf aufweisen.  Diese werden als Indice der verwendeten Moden angegeben. Wichtig!: Da die Moden d+ und d+0 keine kontinulieren Verl"aufe bildeten, steht der Index [1] f"ur die rplus Mode und nicht f"ur die d+ Mode!.
-    Der Parameter "coha" ist ein Array mit 2 Eintr"agen. "coha[1]" ist der Index der Mode in und "coha[2]" die Indices in den Zeiten der jeweiligen Mode. Der wurde lediglich in der rfr-gepumpten Messung angewendet, und war nur f"ur das Molek"ul ODT relevant.
+Below is an example demonstrating the fitting of `Model 3` to previously determined attenuation data. In the parameter `sel`, transient modes with continuous behavior and no signal enhancement (as discussed in the dissertation) are selected. Indices refer to the specific modes used.
+> ⚠️  **Important:** Since the modes `dplus` and `dplusomega` do not exhibit continuous behavior, the index `[1]` refers to the `rplus` mode, not the `dplus` mode!
+
+The parameter `coha` is an array containing two elements: `coha[1]` is the index of the coherent mode, and `coha[2]` indicates its respective time indices. This parameter was only used for the rfr-pumped experiment, relevant specifically for the molecule ODT.
+
+Example usage:
 
 ```julia
     julia> using BlackBoxOptim, HDF5
@@ -87,3 +89,13 @@
     )
 ```
 
+In addition to the provided fitting examples, it is also possible to define custom models using the general model functions included in `Models.jl`. You can adjust these model functions with user-defined parameters to suit your individual requirements. Detailed information on available parameters and usage instructions can be found directly within the comments and documentation of each function inside the `Models.jl` file. With the kwargument `mode`, you can choose which mode to pump. The default value is `mode = :dmin`. The kwargument `dt` allows you to set the time step for the model. The default value is `dt = 0.1` ps.
+
+```julia
+    julia> include("Models.jl")
+    julia> time = collect(-30:0.1:300)
+    julia> parameters = rand(43)
+    julia> model = model3_3(time, parameters, mode=:rplus, dt = 0.1)
+```
+
+Please replace all placeholders (such as `dir_ODT_dmin`, `dir_ODT_rfr`, and `dir_ODT_rmin`) with the actual paths and filenames in `Data`.
