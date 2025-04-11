@@ -76,7 +76,7 @@ Example usage:
     julia> exp_dmin = h5open(dir_ODT_dmin, "r") do fid read(fid) end
     julia> exp_rfr = h5open(dir_ODT_rfr, "r") do fid read(fid) end
     julia> exp_rmin = h5open(dir_ODT_rmin, "r") do fid read(fid) end
-    julia> coha = [3,[19:31]]       # Mode [3] is the coherent mode, and [19:31] are the time indices
+    julia> coha = [3,[19:31]]       # In Mode [3] we obeserve the coherent artifact at the times exp_dmin["Data"]["dltime"][19:31]
     julia> dt = 0.1                 # in ps
     julia> sel_dmin = [1,5,6,7]     # selected modes for the dmin pumped experiment
     julia> sel_rfr = [1,3,5,7]      # selected modes for the rfr pumped experiment
