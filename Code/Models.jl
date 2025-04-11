@@ -2,19 +2,26 @@ using DataFrames
 include("Reservoir Model Struct.jl")
 """
     Model 3.3
-    Modell 3.3 ist eine Weiterentwicklung von Modell 3.2. Es zeigt als wären gewissen Raten so langsam, dass sie aus der Simulation entfernt werden können.
-    unter model.Dictionary sind die entfernte, bzw. festgelegten Parameter aufgelistet.
+    Model 3.3 is an extension of Model 3.2. Certain rates appear to be sufficiently slow that they can be effectively removed from the simulation without 
+    significantly affecting accuracy.
+    The parameters that have been removed or fixed in this model are listed explicitly under model.Dictionary.
     Modell 3.2
-    Aus dem Wellenlängenscan geht hervor, dass wenn wir "rmin" pumpen, wir nicht diskret rmina pumpen, sondern auch gleichzeitig rminb. Weswegen hier ein zusätzlicher 
-    Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
-    Wir betrachten Modell 3.2 als Weiterentwicklung von Modell 3.1.
+    From wavelength-scan experiments, it became clear that pumping at the wavelength labeled "rmin" actually excites two modes simultaneously 
+    (rmina and rminb). Therefore, an additional pump pulse parameter has been introduced. This parameter is set to zero whenever "rmin" is not 
+    actively pumped.
+    Model 3.2 is considered an extension and refinement of Model 3.1.
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
-    der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
-    es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
-    der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
-    Entartung der Moden.
+    Model 3.1 is derived from Model 2.3. The primary shortcoming of Model 2.3 was its inability to accurately reproduce the fast dynamics 
+    observed in the "rfr" mode. Model 3.1 addresses this issue by allowing forward and backward rates involving the "rfr" mode to differ (asymmetric transitions).
+    As in Model 2.3, parameters p[1:2] describe the laser excitation processes. Parameters p[3:9] represent the relaxation rates of the modes, 
+    whereas p[10:50] specify the coupling rates between different modes. Finally, parameters p[51:57] define the degeneracy of each mode.
+        julia> model3_3(
+                t,                  # model time vector
+                p::Vector{T};       # model parameters
+                mode = :dmin,       # which mode is pumped? :dmin, :rmin, or :rfr
+                dt = 0.1            # time step size for the simulation
+               ) where T<:Number
+
 """
 function model3_3(
     t,
@@ -35,18 +42,17 @@ function model3_3(
 
     #---------------------------------------------------------
     # 2) Unpack parameters from p:
-    #    p[1], p[2], etc.  (Keep same indexing as your code.)
     #---------------------------------------------------------
     # Laser parameters
     α        = p[1]   # amplitude scaling of laser pulse
-    α_rb     = 0   # amplitude scaling of laser pulse for rminb
+    α_rb     = 0      # amplitude scaling of laser pulse for rminb/u
     if mode == :rmin
         α_rb = p[2]
     end
     t_0      = p[3]   # center of the Gaussian pulse
-    σ        = 6.67   # fixed pulse width (was hard-coded)
+    σ        = 6.67   # fixed pulse width to observed pulse width of pump pulse
 
-    # Relaxation rates (to ground state) 
+    # Relaxation rates to ground state 
     relax_rplus       = 1/p[4]
     #relax_dminusomega = 1/p[5]
     #relax_dfr         = 1/p[6]
@@ -55,8 +61,8 @@ function model3_3(
     relax_rminusb     = 1/p[6]
     relax_rminusa     = 1/p[7]
 
-    # Coupling constants between states (original indexing)
-    # For simplicity, I'll rename them 'k_xy' to emphasize
+    # Coupling constants between states 
+    # For simplicity, I'll rename them 'k_x_y' to emphasize
     # they are coupling rates. Each will get multiplied by
     # the product of degeneracies g_x*g_y for symmetrical flow.
 
@@ -110,7 +116,7 @@ function model3_3(
     #k_rminusa_rminusb     = k_rminusb_rminusa
 
     # 3) Degeneracy of the states:
-    # p[31] is g_d, while g_r, g_d_omega are hard-coded to 1 below
+    # Fixed values after Model 3.2
         g_rplus   = 1 #p[38]
         g_d_omega = 2
         g_dfr     = 12
@@ -119,9 +125,7 @@ function model3_3(
         g_rminb   = 3
         g_rmina   = 2 #p[44]
 
-
-    # We'll store them in an array so we can do bleach:
-    # State order: 
+    # Store them in an array:
     #   1->rplus, 2->dminusomega, 3->dfr, 4->dminus, 
     #   5->rfr,   6->rminusb,     7->rminusa
         G = [g_rplus, g_d_omega, g_dfr, g_dminus, g_rfr, g_rminb, g_rmina]
@@ -135,6 +139,7 @@ function model3_3(
     #    :dmin, :rmin, or :rfr  -> which state is initially pumped?
     #---------------------------------------------------------
         pump_first = α * f_g[1] * dt
+
     # Initially, one state is pumped:
         Popu[1,1] = (mode == :rplus)     ? 1/G[1] * pump_first         : 0
         Popu[1,2] = (mode == :dminomega) ? 1/G[2] * pump_first         : 0
@@ -155,7 +160,7 @@ function model3_3(
 
 
     #---------------------------------------------------------
-    # 7) Time stepping with explicit Euler:
+    # 6) Time stepping with explicit Euler method:
     #    We'll update all 7 states at each time step.
     #
     #    Key change for symmetrical coupling:
@@ -169,7 +174,7 @@ function model3_3(
     #---------------------------------------------------------
     for i in 2:length(t)
 
-        # Precompute the laser amplitude at this time, if needed
+        # Precompute the laser amplitude at this timestep
         laser_here = α * f_g[i]
 
         #-------------
@@ -359,7 +364,7 @@ function model3_3(
         ) * dt
 
         #-------------
-        # State 6: rminusb
+        # State 6: rminusb or u 
         #-------------
         #pump_rminb = (mode == :rminb) ? laser_here : 0
         pump_rminb  = α_rb * f_g[i] * dt
@@ -434,10 +439,13 @@ function model3_3(
         ) * dt
 
         #-------------
-        # Control
+        # 7) Control
+        # Checks if the balance of the populations is correct at each timestep
         #-------------
-
+        
+        # 1. Integral of Laser Input 
         control[i,1] = control[i-1,1] + (laser_here + α_rb * f_g[i]) * dt
+        # 2. Overall Population of all substates
         control[i,2] = G[1] * Popu[i,1] + (
                G[2] * Popu[i,2] 
              + G[3] * Popu[i,3] 
@@ -446,7 +454,7 @@ function model3_3(
              + G[6] * Popu[i,6] 
              + G[7] * Popu[i,7] 
         )
-
+        # 3. Relaxed Population of all substates
         control[i,3] = control[i-1,3] + (
             + G[1] * relax_rplus * Popu[i-1,1]
             #+ G[2] * relax_dminusomega * Popu[i-1,2]
@@ -456,7 +464,7 @@ function model3_3(
             + G[6] * relax_rminusb * Popu[i-1,6]
             + G[7] * relax_rminusa * Popu[i-1,7]
         ) * dt
-        
+        # 4. Sum of Laser Input, Overall Population and Relaxed Population should equal to 0 at every timestep
         control[i,4] = control[i,1] - control[i,2] - control[i,3]
     end
 
@@ -468,15 +476,14 @@ function model3_3(
         Bleach[:,k] = (1 .- 2 .* G[k] .* Popu[:,k]) .^2
     end
 
-# ------------------------------------------------------
-    # 9) Dictionary aufbauen (DataFrames, etc.)
+    # ------------------------------------------------------
+    # 9) Dictionary (DataFrames, etc.)
     # ------------------------------------------------------
 
     # A) Puls
     df_puls = DataFrame(alpha = p[1],alpha_rb = p[2], t_0 = p[3])
 
     # B) Relaxation
-    #    p[3..9], 7 Parameter => rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa
     modes_relax = [
         "rplus", 
         #"dminusomega", 
@@ -491,23 +498,22 @@ function model3_3(
         Wert_ps = p[4:7]
     )
 
-    # C) Entartung
-    #    p[37..43] => 7 Parameter
+    # C) Degeneracy
     modes_deg = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_entartung = DataFrame(
         Mode = modes_deg,
         g    = G#p[38:44]
     )
 
-    # D) Kopplungen (jetzt mit asymmetrischen Einträgen)
-    #    Wir müssen nun Vorwärts- und Rückwärts-Parameter explizit angeben.
+    # D) Couplings between states
+    #    We differ between forward and backward couplings
     #    Syntax: (x, y, fwd_idx, bwd_idx)
     #      => t_x_y   => p[fwd_idx]
     #      => t_y_x   => p[bwd_idx]
     couplings = [
         (:rplus,       :dminusomega, 8, 8),
         (:rplus,       :dfr,         9, 9),
-        (:rplus,       :rminusb,     10, 10), # asyn
+        (:rplus,       :rminusb,     10, 10), # asym
 
         (:dminusomega, :rfr,         11, 15),  # asym
         (:dminusomega, :rminusa,     12, 12),
@@ -535,8 +541,7 @@ function model3_3(
         ))
     end
     df_koppl_all = DataFrame(rows_all)
-
-    # pro Mode eine gefilterte Kopplungstabelle
+    # Function to create DataFrame for each mode
     function df_koppl_for_mode(m::Symbol)
         subrows = Vector{Dict{Symbol,Any}}()
         for (x,y, fwd_idx, bwd_idx) in couplings
@@ -557,13 +562,13 @@ function model3_3(
         end
         return DataFrame(subrows)
     end
-
+    # Create DataFrame for each mode
     modes_all = [:rplus, :dminusomega, :dfr, :dminus, :rfr, :rminusb, :rminusa]
     dict_koppl = Dict(:All => df_koppl_all)
     for m in modes_all
         dict_koppl[m] = df_koppl_for_mode(m)
     end
-    # E) Entfernte Parameter
+    # E) Removed parameters
       df_entfernt = DataFrame(
         Parameter = [
             "relax_dminusomega",
@@ -603,9 +608,9 @@ function model3_3(
             2
             )
       )
-    # Gesamtdictionary
+    # Full output dictionary
     outputDict = Dict(
-        :Model       => "Model 3.3 - ODT",
+        :Model       => "Model 3.3",
         :fitted_mode => mode,
         :Parameter   => Dict(
             :All        => p,
@@ -618,70 +623,61 @@ function model3_3(
         :Zeitschritt => dt
     )
 
-    # ------------------------------------------------------
-    # 10) Rückgabe als ReservoirModel (inkl. Dictionary)
-    # ------------------------------------------------------
-    # Falls dein ReservoirModel-Struct kein Dictionary-Feld hat,
-    # kannst du hier natürlich nur das Modell und das Dict getrennt zurückgeben.
     return ReservoirModel(Popu, Bleach, p, t, mode,control, outputDict)
 end
 
-
+"""
+    The following function can fit the model 3.3 to the data. For more information on the model, see the model function model3_3.
+    The function uses a global optimizer of the package "BlackBoxOptim.jl". It is recommend to use the :adaptive_de_rand_1_bin_radiuslimited algorithm 
+    to have a robustfree fit. 
+    This function fits three data sets to one set of parameters. The data sets are:
+        - time_dmin, traces_dmin, use_dmin: data set for the dmin pumped experiment
+        - time_rfr, traces_rfr, use_rfr: data set for the rfr pumped experiment
+        - time_rmin, traces_rmin, use_rmin: data set for the rmin pumped experiment
+    The time argument is the time vector of the corresponding data set, the traces argument is the data set itself 
+    of the used traces and the use argument is a vector which contains the indices of the traces which should be used for the fit.
+    The coha argument is an array. coha[1] contains the index of the mode where we observed the coherent artifact in the rfr pumped experiment.
+    coha[2] contains the indices of the time_vector where the coherent artifact is observed.
+    The function returns three ReservoirModel objects for the three data sets.
+        julia> blackbox_model_3_3(
+                time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+                time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+                time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+                coha;                           # cohrent artifact array
+                dt=0.1                          # time step
+               )
+"""
 function blackbox_model_3_3(
-    time_dmin,traces_dmin,use_dmin,
-    time_rfr,traces_rfr,use_rfr,
-    time_rmin,traces_rmin,use_rmin,
-    coha;
-    dt=0.1
+    time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+    time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+    time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+    coha;                           # cohrent artifact array
+    dt=0.1                          # time step
 )
-    # 1) Define priors
-    initial_params = [    
-        1.1782,  # α_dmin
-        7.196e-7,# α_rb_dmin
-        -6.4929, # t_0_dmin
-        0.207,   # α_rfr
-        9.8e-7,  # α_rb_rfr
-        -5.92,   # t_0_rfr
-        0.0389,  # α_rmin
-        2.8652  ,# α_rb_rmin
-        -5.922,  # t_0_rmin
-        3759.4,  # relax_rplus
-        7.9595,  # relax_dminus
-        65.375,  # relax_rminusb
-        25.293,  # relax_rminusa
-        16.302,  # rplus_dminusomega
-        50.119,  # rplus_dfr
-        28.914,  # rplus_rminusb
-        5000.0, # dminusomega_rfr
-        295.47,  # dminusomega_rminusa
-        122.49,  # dfr_rminusb
-        24.151,  # dminus_rfr
-        3.1292,  # rfr_dminusomega
-        5000.0, # rfr_dminus
-        5000.0, # rfr_rminusb
-        20.925,  # rfr_rminusa
-        11.61,   # rminusb_rfr
-        5000.0, # rminusa_rfr
-    ]
-    # 2) Define the search space
+    # 1) Define the search space
     lb = vcat(
         [0.0, 0.0, -20.0], # α_dmin, α_rb_dmin, t_0_dmin
         [0.0, 0.0, -20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
         [0.0, 0.0, -20.0], # α_rmin, α_rb_rmin, t_0_rmin
-        fill(1.0,4), # relaxation_params   
-        fill(1.0,13), # kopplungs_params
+        fill(1.0,4),  # relaxation_params   
+        fill(1.0,13), # couplings_params
     )
     ub = vcat(
         [50.0, 1e-6, 20.0], # α_dmin, α_rb_dmin, t_0_dmin
         [50.0, 1e-6, 20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
         [50.0, 50.0, 20.0], # α_rmin, α_rb_rmin, t_0_rmin
-        fill(5000.0,4), # relaxation_params   
-        fill(5000.0,13), # kopplungs_params
+        fill(5000.0,4),  # relaxation_params   
+        fill(5000.0,13), # couplings_params
     )
-    # 3) Construct time points for each mode
+    # 2) Construct time vectors for each experiment
     t_model_dmin = collect(time_dmin[1]:dt:time_dmin[end])
     t_model_rfr = collect(time_rfr[1]:dt:time_rfr[end])
     t_model_rmin = collect(time_rmin[1]:dt:time_rmin[end])
+
+    # 3) Define the cost function
+    # The function "cost" computes a total cost based on the weighted squared differences
+    # between the model predictions and experimental traces. It includes penalties to
+    # constrain the simulated populations.
 
     function cost(
         p::Vector{Float64}
@@ -693,33 +689,39 @@ function blackbox_model_3_3(
 
         relax_p = p[10:13]     # 4 relaxation
         koppl_p = p[14:26]     # 13 couplings
-        g     = 1#p[28:end]    # 4 degeneracy
+        g     = 1#p[28:end]    # degeneracy is for this model hardcoded in the model function
 
-        # 2) Construct the model
+        # 2) Construct the models
+        # With the use argument we select a subset of the model to fit to the data
+
+        # dmin pumped experiment
         model_dmin = model3_3(
             t_model_dmin,
             vcat(α_dmin,α_rb_dmin, t0_dmin, relax_p, koppl_p, g),
             mode = :dmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # dmin subset
         model_dmin_used = model_dmin.Bleach[:, use_dmin]
+        # rfr pumped experiment
         model_rfr = model3_3(
             t_model_rfr,
             vcat(α_rfr, α_rb_rfr, t0_rfr, relax_p, koppl_p, g),
             mode = :rfr,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rfr subset
         model_rfr_used = model_rfr.Bleach[:, use_rfr]
+        # rmin pumped experiment
         model_rmin = model3_3(
             t_model_rmin,
             vcat(α_rmin,α_rb_rmin, t0_rmin, relax_p, koppl_p, g),
             mode = :rmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rmin subset
         model_rmin_used = model_rmin.Bleach[:, use_rmin]
+
         # 3) Interpolate the predicted signals at the experiment time points
         spl_dmin = [linear_interpolation(t_model_dmin, model_dmin_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_dmin_used,2)]
         spl_rfr  = [linear_interpolation(t_model_rfr, model_rfr_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_rfr_used,2)]
@@ -730,6 +732,7 @@ function blackbox_model_3_3(
         v_pred_rmin =  [spl_bleach(time_rmin) for spl_bleach in spl_rmin]
 
         # 4) Combine them to match data's shape.
+        #   Also, replace NaN and Inf values with a large number (1e12)
         pred_dmin = hcat(v_pred_dmin...)
         for i in 1:length(pred_dmin)
             if isinf(pred_dmin[i]) || isnan(pred_dmin[i])
@@ -748,11 +751,13 @@ function blackbox_model_3_3(
                 pred_rmin[i] = 1e12
             end
         end
-        # 5) Select time steps without coherence artifact in rfr
+        # 5) Select time steps without coherence artifact in rfr pumped experiment
         selected_idx_rfr = setdiff(1:size(time_rfr,1),last(coha)[1])
         selected_time_rfr = time_rfr[selected_idx_rfr]
 
-        # 6) Weights
+        # 6) Weights 
+        # Use the time_weight function to create special weights for short delays, since we observe 
+        # fast dynamics in the beginning of the experiment.
         w_dmin = ones(size(pred_dmin))
         w_pertrace_dmin = [
             5.0,  # rplus
@@ -797,7 +802,8 @@ function blackbox_model_3_3(
             end
         end
         
-        # 6) Data likelihood
+        # 7) Since we sum over all Data points, we need to normalize the weights
+        # to the length of the given dataset
             length_dmin = length(time_dmin)
             length_rfr = length(time_rfr)
             length_rmin = length(time_rmin)
@@ -806,7 +812,9 @@ function blackbox_model_3_3(
             cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
             cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
             cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
-        # 7) Penaltys
+        # 8) penalties
+        # We define a maximum Population with max_P
+        # If the Population is above this value, we add a penalty to the cost function
             max_P = 0.1
         # Squared sum over all Poplulation timesteps which are above the threshold
             P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
@@ -816,22 +824,20 @@ function blackbox_model_3_3(
 
         return total_cost
     end
+
+    # Use bboptimize to find the best parameters
     println("Starting optimization...")
 
     result = bboptimize(
-        cost, # cost functionw_
-        initial_params;          # initial guess
-        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)],
-        Method       = :dxnes,#:adaptive_de_rand_1_bin_radiuslimited , #dxnes, or :cmaes, :genetic, etc.
-        #NThreads=Threads.nthreads()-1,
+        cost; # cost functionw_
+        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)], # search space
+        Method       = :adaptive_de_rand_1_bin_radiuslimited , #dxnes, or :cmaes, :genetic, etc.
         MaxSteps     = 1_000_000, # or some large budget
         PopulationSize = 1_000,  # can try bigger for better coverage
         TraceMode    = :verbose 
     )
-
-    #println("Finished. Best fitness = ", minimum_fitness(result))
     println("Best solution = ", best_candidate(result))
-    # 7) Extract the parameters
+    # 9) Extract the parameters
         ## Pumppulse
             ### dmin
                 pulse_params_dmin  =  best_candidate(result)[1:3]
@@ -841,11 +847,11 @@ function blackbox_model_3_3(
                 pulse_params_rmin  =  best_candidate(result)[7:9]
         ## Relaxation
             relaxation_params =  best_candidate(result)[10:13]
-        ## Kopplung
+        ## Couplings
             kopplungs_params = best_candidate(result)[14:26]
         ## Degeneracy
-            g = [1,2,12,16,1,3,2]#best_candidate(result)[28:end]
-    # 8) Create the model
+            g = [1,2,12,16,1,3,2] # hardcoded for this model_rmin
+    # 10) Create the the fitted model
 
     best_model_dmin  = model3_3(
         t_model_dmin,
@@ -872,16 +878,22 @@ end
 
 """
     Modell 3.2
-    Aus dem Wellenlängenscan geht hervor, dass wenn wir "rmin" pumpen, wir nicht diskret rmina pumpen, sondern auch gleichzeitig rminb. Weswegen hier ein zusätzlicher 
-    Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
-    Wir betrachten Modell 3.2 als Weiterentwicklung von Modell 3.1.
+    From wavelength-scan experiments, it became clear that pumping at the wavelength labeled "rmin" actually excites two modes simultaneously 
+    (rmina and rminb). Therefore, an additional pump pulse parameter has been introduced. This parameter is set to zero whenever "rmin" is not 
+    actively pumped.
+    Model 3.2 is considered an extension and refinement of Model 3.1.
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
-    der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
-    es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
-    der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
-    Entartung der Moden.
+    Model 3.1 is derived from Model 2.3. The primary shortcoming of Model 2.3 was its inability to accurately reproduce the fast dynamics 
+    observed in the "rfr" mode. Model 3.1 addresses this issue by allowing forward and backward rates involving the "rfr" mode to differ (asymmetric transitions).
+    As in Model 2.3, parameters p[1:2] describe the laser excitation processes. Parameters p[3:9] represent the relaxation rates of the modes, 
+    whereas p[10:50] specify the coupling rates between different modes. Finally, parameters p[51:57] define the degeneracy of each mode.
+        julia> model3_2(
+                t,                  # model time vector
+                p::Vector{T};       # model parameters
+                mode = :dmin,       # which mode is pumped? :dmin, :rmin, or :rfr
+                dt = 0.1            # time step size for the simulation
+               ) where T<:Number
+
 """
 function model3_2(
     t,
@@ -902,18 +914,17 @@ function model3_2(
 
     #---------------------------------------------------------
     # 2) Unpack parameters from p:
-    #    p[1], p[2], etc.  (Keep same indexing as your code.)
     #---------------------------------------------------------
     # Laser parameters
     α        = p[1]   # amplitude scaling of laser pulse
-    α_rb     = 0   # amplitude scaling of laser pulse for rminb
+    α_rb     = 0      # amplitude scaling of laser pulse for rminb/u
     if mode == :rmin
         α_rb = p[2]
     end
     t_0      = p[3]   # center of the Gaussian pulse
-    σ        = 6.67   # fixed pulse width (was hard-coded)
+    σ        = 6.67   # fixed pulse width to observed pulse width of pump pulse
 
-    # Relaxation rates (to ground state) 
+    # Relaxation rates to ground state 
     relax_rplus       = 1/p[4]
     relax_dminusomega = 1/p[5]
     relax_dfr         = 1/p[6]
@@ -922,8 +933,8 @@ function model3_2(
     relax_rminusb     = 1/p[9]
     relax_rminusa     = 1/p[10]
 
-    # Coupling constants between states (original indexing)
-    # For simplicity, I'll rename them 'k_xy' to emphasize
+    # Coupling constants between states
+    # For simplicity, I'll rename them 'k_x_y' to emphasize
     # they are coupling rates. Each will get multiplied by
     # the product of degeneracies g_x*g_y for symmetrical flow.
 
@@ -977,7 +988,7 @@ function model3_2(
     k_rminusa_rminusb     = k_rminusb_rminusa
 
     # 3) Degeneracy of the states:
-    # p[31] is g_d, while g_r, g_d_omega are hard-coded to 1 below
+    # only fixed values for rplus and rfr
     g_rplus   = 1 #p[38]
     g_d_omega = round(Int,p[39])
     g_dfr     = round(Int,p[40])
@@ -987,11 +998,10 @@ function model3_2(
     g_rmina   = round(Int,p[44])
 
 
-    # We'll store them in an array so we can do bleach:
-    # State order: 
+    # Store them in an array:
     #   1->rplus, 2->dminusomega, 3->dfr, 4->dminus, 
     #   5->rfr,   6->rminusb,     7->rminusa
-    G = [g_rplus, g_d_omega, g_dfr, g_dminus, g_rfr, g_rminb, g_rmina]
+        G = [g_rplus, g_d_omega, g_dfr, g_dminus, g_rfr, g_rminb, g_rmina]
 
     #---------------------------------------------------------
     # 4) Precompute the pulse shape at each time point
@@ -1022,11 +1032,11 @@ function model3_2(
 
 
     #---------------------------------------------------------
-    # 7) Time stepping with explicit Euler:
+    # 6) Time stepping with explicit Euler method:
     #    We'll update all 7 states at each time step.
     #
     #    Key change for symmetrical coupling:
-    #      * For a coupling k_xy between state x and y,
+    #      * For a coupling k_x_y between state x and y,
     #        we multiply by (G[x]*G[y]) in BOTH equations:
     #
     #        Popu[i,x] += + k_xy * G[x]*G[y]*(Popu[i-1,y] - Popu[i-1,x])
@@ -1036,7 +1046,7 @@ function model3_2(
     #---------------------------------------------------------
     for i in 2:length(t)
 
-        # Precompute the laser amplitude at this time, if needed
+        # Precompute the laser amplitude at this timestep
         laser_here = α * f_g[i]
 
         #-------------
@@ -1301,10 +1311,13 @@ function model3_2(
         ) * dt
 
         #-------------
-        # Control
+        # 7) Control
+        # Checks if the balance of the populations is correct at each timestep
         #-------------
 
+        # 1. Integral of Laser Input 
         control[i,1] = control[i-1,1] + (laser_here + α_rb * f_g[i]) * dt
+        # 2. Overall Population of all substates 
         control[i,2] = G[1] * Popu[i,1] + (
                G[2] * Popu[i,2] 
              + G[3] * Popu[i,3] 
@@ -1313,7 +1326,8 @@ function model3_2(
              + G[6] * Popu[i,6] 
              + G[7] * Popu[i,7] 
         )
-
+        
+        # 3. Relaxed Population of all substates
         control[i,3] = control[i-1,3] + (
             + G[1] * relax_rplus * Popu[i-1,1]
             + G[2] * relax_dminusomega * Popu[i-1,2]
@@ -1324,6 +1338,7 @@ function model3_2(
             + G[7] * relax_rminusa * Popu[i-1,7]
         ) * dt
         
+        # 4. Sum of Laser Input, Overall Population and Relaxed Population should equal to 0 at every timestep
         control[i,4] = control[i,1] - control[i,2] - control[i,3]
     end
 
@@ -1336,14 +1351,13 @@ function model3_2(
     end
 
 # ------------------------------------------------------
-    # 9) Dictionary aufbauen (DataFrames, etc.)
+    # 9) Dictionary (DataFrames, etc.)
     # ------------------------------------------------------
 
     # A) Puls
     df_puls = DataFrame(alpha = p[1],alpha_rb = p[2], t_0 = p[3])
 
     # B) Relaxation
-    #    p[3..9], 7 Parameter => rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa
     modes_relax = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_relax = DataFrame(
         Mode    = modes_relax,
@@ -1351,15 +1365,14 @@ function model3_2(
     )
 
     # C) Entartung
-    #    p[37..43] => 7 Parameter
     modes_deg = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_entartung = DataFrame(
         Mode = modes_deg,
         g    = G#p[38:44]
     )
 
-    # D) Kopplungen (jetzt mit asymmetrischen Einträgen)
-    #    Wir müssen nun Vorwärts- und Rückwärts-Parameter explizit angeben.
+    # D) Couplings between states
+    #    We differ between forward and backward couplings
     #    Syntax: (x, y, fwd_idx, bwd_idx)
     #      => t_x_y   => p[fwd_idx]
     #      => t_y_x   => p[bwd_idx]
@@ -1408,7 +1421,7 @@ function model3_2(
     end
     df_koppl_all = DataFrame(rows_all)
 
-    # pro Mode eine gefilterte Kopplungstabelle
+    # Function to create DataFrame for each mode
     function df_koppl_for_mode(m::Symbol)
         subrows = Vector{Dict{Symbol,Any}}()
         for (x,y, fwd_idx, bwd_idx) in couplings
@@ -1430,13 +1443,14 @@ function model3_2(
         return DataFrame(subrows)
     end
 
+    # Create DataFrame for each mode
     modes_all = [:rplus, :dminusomega, :dfr, :dminus, :rfr, :rminusb, :rminusa]
     dict_koppl = Dict(:All => df_koppl_all)
     for m in modes_all
         dict_koppl[m] = df_koppl_for_mode(m)
     end
 
-    # Gesamtdictionary
+    # Full output dictionary
     outputDict = Dict(
         :Model       => "Model 3.2",
         :fitted_mode => mode,
@@ -1450,75 +1464,38 @@ function model3_2(
         :Zeitschritt => dt
     )
 
-    # ------------------------------------------------------
-    # 10) Rückgabe als ReservoirModel (inkl. Dictionary)
-    # ------------------------------------------------------
-    # Falls dein ReservoirModel-Struct kein Dictionary-Feld hat,
-    # kannst du hier natürlich nur das Modell und das Dict getrennt zurückgeben.
     return ReservoirModel(Popu, Bleach, p, t, mode,control, outputDict)
 end
 
+"""
+    The following function can fit the model 3.2 to the data. For more information on the model, see the model function model3_2.
+    The function uses a global optimizer of the package "BlackBoxOptim.jl". It is recommend to use the :adaptive_de_rand_1_bin_radiuslimited algorithm 
+    to have a robustfree fit. 
+    This function fits three data sets to one set of parameters. The data sets are:
+        - time_dmin, traces_dmin, use_dmin: data set for the dmin pumped experiment
+        - time_rfr, traces_rfr, use_rfr: data set for the rfr pumped experiment
+        - time_rmin, traces_rmin, use_rmin: data set for the rmin pumped experiment
+    The time argument is the time vector of the corresponding data set, the traces argument is the data set itself 
+    of the used traces and the use argument is a vector which contains the indices of the traces which should be used for the fit.
+    The coha argument is an array. coha[1] contains the index of the mode where we observed the coherent artifact in the rfr pumped experiment.
+    coha[2] contains the indices of the time_vector where the coherent artifact is observed.
+    The function returns three ReservoirModel objects for the three data sets.
+        julia> blackbox_model_3_2(
+                time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+                time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+                time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+                coha;                           # cohrent artifact array
+                dt=0.1                          # time step
+               )
+"""
 function blackbox_model_3_2(
-    time_dmin,traces_dmin,use_dmin,
-    time_rfr,traces_rfr,use_rfr,
-    time_rmin,traces_rmin,use_rmin,
-    coha;
-    dt=0.1
+    time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+    time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+    time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+    coha;                           # cohrent artifact array
+    dt=0.1                          # time step
 )
-    # 1) Define priors
-    initial_params = [    
-        5.6553,  # α_dmin
-        3.4e-6,  # α_rb_dmin
-        -1.98,   # t_0_dmin
-        0.54,    # α_rfr
-        2.52e-6, # α_rb_rfr
-        -3.33,   # t_0_rfr
-        6.11e-7, # α_rmin
-        7.7,     # α_rb_rmin
-        -2.99,   # t_0_rmin
-        5000.0, # relax_rplus
-        5000.0, # relax_dminusomega
-        1.1594,  # relax_dfr
-        1.0,     # relax_dminus
-        5000.0, # relax_rfr
-        5000.0, # relax_rminusb
-        5000.0, # relax_rminusa
-        350.68,  # rplus_dminusomega
-        5000.0, # rplus_dfr
-        5000.0, # rplus_dminus
-        5000.0, # rplus_rfr
-        35.411,  # rplus_rminusb
-        5000.0, # rplus_rminusa
-        5000.0, # dminusomega_dfr
-        5000.0, # dminusomega_dminus
-        5000.0, # dminusomega_rfr
-        5000.0, # dminusomega_rminusb
-        676.87,  # dminusomega_rminusa
-        28.737,  # dfr_dminus
-        5000.0, # dfr_rfr
-        5000.0, # dfr_rminusb
-        5000.0, # dfr_rminusa
-        3.2224,  # dminus_rfr
-        5000.0, # dminus_rminusb
-        5000.0, # dminus_rminusa
-        143.74,  # rfr_rplus
-        7.7205,  # rfr_dminusomega
-        7.6201,  # rfr_dfr
-        5000.0, # rfr_dminus
-        3.2201,  # rfr_rminusb
-        36.081,  # rfr_rminusa
-        1.0,     # rminusb_rfr
-        75.208,  # rminusb_rminusa
-        101.36,  # rminusa_rfr
-        1.0,     # g_rplus
-        1.7852,  # g_dminomega
-        7.8579,  # g_dfr
-        8.2365,  # g_dminus
-        1.0,     # g_rfr
-        2.0101,  # g_rminusb
-        2.0,     # g_rminusa 
-    ]
-    # 2) Define the search space
+    # 1) Define the search space
     lb = vcat(
         [0.0, 0.0, -20.0], # α_dmin, α_rb_dmin, t_0_dmin
         [0.0, 0.0, -20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
@@ -1547,11 +1524,15 @@ function blackbox_model_3_2(
         3.0,              # g_rminusb
         2.01               # g_rminusa
     )
-    # 3) Construct time points for each mode
+    # 2) Construct time vectors for each experiment
     t_model_dmin = collect(time_dmin[1]:dt:time_dmin[end])
     t_model_rfr = collect(time_rfr[1]:dt:time_rfr[end])
     t_model_rmin = collect(time_rmin[1]:dt:time_rmin[end])
 
+    # 3) Define the cost function
+    # The function "cost" computes a total cost based on the weighted squared differences
+    # between the model predictions and experimental traces. It includes penalties to
+    # constrain the simulated populations.
     function cost(
         p::Vector{Float64}
     )
@@ -1565,30 +1546,38 @@ function blackbox_model_3_2(
         g     = p[44:end]      # 7 degeneracy
 
         # 2) Construct the model
+        # With the use argument we select a subset of the model to fit to the data
+
+        # dmin pumped experiment
         model_dmin = model3_2(
             t_model_dmin,
             vcat(α_dmin,α_rb_dmin, t0_dmin, relax_p, koppl_p, g),
             mode = :dmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # dmin subset
         model_dmin_used = model_dmin.Bleach[:, use_dmin]
+
+        # rfr pumped experiment
         model_rfr = model3_2(
             t_model_rfr,
             vcat(α_rfr, α_rb_rfr, t0_rfr, relax_p, koppl_p, g),
             mode = :rfr,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rfr subset
         model_rfr_used = model_rfr.Bleach[:, use_rfr]
+
+        # rmin pumped experiment
         model_rmin = model3_2(
             t_model_rmin,
             vcat(α_rmin,α_rb_rmin, t0_rmin, relax_p, koppl_p, g),
             mode = :rmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rmin subset
         model_rmin_used = model_rmin.Bleach[:, use_rmin]
+
         # 3) Interpolate the predicted signals at the experiment time points
         spl_dmin = [linear_interpolation(t_model_dmin, model_dmin_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_dmin_used,2)]
         spl_rfr  = [linear_interpolation(t_model_rfr, model_rfr_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_rfr_used,2)]
@@ -1599,6 +1588,7 @@ function blackbox_model_3_2(
         v_pred_rmin =  [spl_bleach(time_rmin) for spl_bleach in spl_rmin]
 
         # 4) Combine them to match data's shape.
+        #   Also, replace NaN and Inf values with a large number (1e12)
         pred_dmin = hcat(v_pred_dmin...)
         for i in 1:length(pred_dmin)
             if isinf(pred_dmin[i]) || isnan(pred_dmin[i])
@@ -1617,13 +1607,14 @@ function blackbox_model_3_2(
                 pred_rmin[i] = 1e12
             end
         end
-        # 5) Select time steps without coherence artifact in rfr
+        # 5) Select time steps without coherence artifact in rfr pumped experiment
         selected_idx_rfr = setdiff(1:size(time_rfr,1),last(coha)[1])
         selected_time_rfr = time_rfr[selected_idx_rfr]
 
-       
-        
-        # 6) Data likelihood # 6) Weights
+        # 6) Weights 
+        # Use the time_weight function to create special weights for short delays, since we observe 
+        # fast dynamics in the beginning of the experiment.
+
         w_dmin = ones(size(pred_dmin))
         w_pertrace_dmin = [
             5.0,  # rplus
@@ -1670,41 +1661,45 @@ function blackbox_model_3_2(
                 end
             end
         end
-        length_dmin = length(time_dmin)
-        length_rfr = length(time_rfr)
-        length_rmin = length(time_rmin)
-        norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
-        norm_weight ./= maximum(norm_weight)
-        cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
-        cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
-        cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
-        # 7) Penaltys
-        max_P = 0.1
+
+        # 7) Since we sum over all Data points, we need to normalize the weights
+        # to the length of the given dataset
+            length_dmin = length(time_dmin)
+            length_rfr = length(time_rfr)
+            length_rmin = length(time_rmin)
+            norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
+            norm_weight ./= maximum(norm_weight)
+            cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
+            cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
+            cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
+        # 8) Penaltys
+        # We define a maximum Population with max_P
+        # If the Population is above this value, we add a penalty to the cost function
+            max_P = 0.1
         # Squared sum over all Poplulation timesteps which are above the threshold
-        P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
-            norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
-            norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
-        total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
+            P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
+                norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
+                norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
+            total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
 
 
         return total_cost
     end
+
+    # Use bboptimize to find the best parameters
     println("Starting optimization...")
 
     result = bboptimize(
-        cost, # cost functionw_
-        initial_params;          # initial guess
-        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)],
+        cost; # cost function
+        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)], # search space
         Method       = :adaptive_de_rand_1_bin_radiuslimited ,   # or :cmaes, :genetic, etc.
-        #NThreads=Threads.nthreads()-1,
         MaxSteps     = 10_000_000, # or some large budget
         PopulationSize = 1_000,  # can try bigger for better coverage
         TraceMode    = :verbose 
     )
 
-    #println("Finished. Best fitness = ", minimum_fitness(result))
     println("Best solution = ", best_candidate(result))
-    # 7) Extract the parameters
+    # 9) Extract the parameters
         ## Pumppulse
             ### dmin
                 pulse_params_dmin  =  best_candidate(result)[1:3]
@@ -1718,7 +1713,7 @@ function blackbox_model_3_2(
             kopplungs_params = best_candidate(result)[17:43]
         ## Degeneracy
             g = best_candidate(result)[44:end]
-    # 8) Create the model
+    # 10) Create the the fitted model
 
     best_model_dmin  = model3_2(
         t_model_dmin,
@@ -1744,12 +1739,17 @@ end
 
 """
     Modell 3.1:
-    Das Modell 3.1 ist eine Weiterentwicklung des Modells 2.3. Modell 2.3 versagt am deutlichsten bei der Beschreibung
-    der rfr Mode. Hier kann keine schnelle Dynamik erreicht werden. Das Modell 3.1 versucht dies zu verbessern, indem
-    es die Hin und R"uckrate zwischen der rfr Mode nicht mehr als gleich annimmt.
-    Wie in Modell 2.3 beschreiben die Parameter p[1:2] die Laseranregung. Die Parameter p[3:9] beschreiben die Relaxationsraten
-    der Moden. Die Parameter p[10:50] beschreiben die Kopplungsraten zwischen den Moden. Die Parameter p[51:57] beschreiben die
-    Entartung der Moden.
+    Model 3.1 is derived from Model 2.3. The primary shortcoming of Model 2.3 was its inability to accurately reproduce the fast dynamics 
+    observed in the "rfr" mode. Model 3.1 addresses this issue by allowing forward and backward rates involving the "rfr" mode to differ (asymmetric transitions).
+    As in Model 2.3, parameters p[1:2] describe the laser excitation processes. Parameters p[3:9] represent the relaxation rates of the modes, 
+    whereas p[10:50] specify the coupling rates between different modes. Finally, parameters p[51:57] define the degeneracy of each mode.
+        julia> model3_1(
+                t,                  # model time vector
+                p::Vector{T};       # model parameters
+                mode = :dmin,       # which mode is pumped? :dmin, :rmin, or :rfr
+                dt = 0.1            # time step size for the simulation
+               ) where T<:Number
+
 """
 function model3_1(
     t,
@@ -1775,9 +1775,9 @@ function model3_1(
     # Laser parameters
     α        = p[1]   # amplitude scaling of laser pulse
     t_0      = p[2]   # center of the Gaussian pulse
-    σ        = 6.67   # fixed pulse width (was hard-coded)
+    σ        = 6.67   # fixed pulse width to observed pulse width of pump pulse
 
-    # Relaxation rates (to ground state) 
+    # Relaxation rates to ground state 
     relax_rplus       = 1/p[3]
     relax_dminusomega = 1/p[4]
     relax_dfr         = 1/p[5]
@@ -1786,8 +1786,8 @@ function model3_1(
     relax_rminusb     = 1/p[8]
     relax_rminusa     = 1/p[9]
 
-    # Coupling constants between states (original indexing)
-    # For simplicity, I'll rename them 'k_xy' to emphasize
+    # Coupling constants between states 
+    # For simplicity, I'll rename them 'k_x_y' to emphasize
     # they are coupling rates. Each will get multiplied by
     # the product of degeneracies g_x*g_y for symmetrical flow.
 
@@ -1841,7 +1841,7 @@ function model3_1(
     k_rminusa_rminusb     = k_rminusb_rminusa
 
     # 3) Degeneracy of the states:
-    # p[31] is g_d, while g_r, g_d_omega are hard-coded to 1 below
+    # Fixed values after Model 3.2
     g_rplus   = p[37]
     g_d_omega = p[38]
     g_dfr     = p[39]
@@ -1851,8 +1851,7 @@ function model3_1(
     g_rmina   = p[43]
 
 
-    # We'll store them in an array so we can do bleach:
-    # State order: 
+    # Store them in an array:
     #   1->rplus, 2->dminusomega, 3->dfr, 4->dminus, 
     #   5->rfr,   6->rminusb,     7->rminusa
     G = [g_rplus, g_d_omega, g_dfr, g_dminus, g_rfr, g_rminb, g_rmina]
@@ -1886,7 +1885,7 @@ function model3_1(
 
 
     #---------------------------------------------------------
-    # 7) Time stepping with explicit Euler:
+    # 6) Time stepping with explicit Euler method:
     #    We'll update all 7 states at each time step.
     #
     #    Key change for symmetrical coupling:
@@ -2164,10 +2163,14 @@ function model3_1(
         ) * dt
 
         #-------------
-        # Control
+        # 7) Control
+        # Checks if the balance of the populations is correct at each timestep
         #-------------
 
+        # 1. Integral of Laser Input 
         control[i,1] = control[i-1,1] + laser_here * dt
+
+        # 2. Overall Population of all substates
         control[i,2] = G[1] * Popu[i,1] + (
                G[2] * Popu[i,2] 
              + G[3] * Popu[i,3] 
@@ -2176,7 +2179,8 @@ function model3_1(
              + G[6] * Popu[i,6] 
              + G[7] * Popu[i,7] 
         )
-
+        
+        # 3. Relaxed Population of all substates
         control[i,3] = control[i-1,3] + (
             + G[1] * relax_rplus * Popu[i-1,1]
             + G[2] * relax_dminusomega * Popu[i-1,2]
@@ -2186,7 +2190,8 @@ function model3_1(
             + G[6] * relax_rminusb * Popu[i-1,6]
             + G[7] * relax_rminusa * Popu[i-1,7]
         ) * dt
-        
+
+        # 4. Sum of Laser Input, Overall Population and Relaxed Population should equal to 0 at every timestep
         control[i,4] = control[i,1] - control[i,2] - control[i,3]
     end
 
@@ -2199,30 +2204,28 @@ function model3_1(
     end
 
 # ------------------------------------------------------
-    # 9) Dictionary aufbauen (DataFrames, etc.)
+    # 9) Dictionary (DataFrames, etc.)
     # ------------------------------------------------------
 
     # A) Puls
     df_puls = DataFrame(alpha = p[1], t_0 = p[2])
 
     # B) Relaxation
-    #    p[3..9], 7 Parameter => rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa
     modes_relax = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_relax = DataFrame(
         Mode    = modes_relax,
         Wert_ps = p[3:9]
     )
 
-    # C) Entartung
-    #    p[37..43] => 7 Parameter
+    # C) Degeneracy
     modes_deg = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_entartung = DataFrame(
         Mode = modes_deg,
         g    = G
     )
 
-    # D) Kopplungen (jetzt mit asymmetrischen Einträgen)
-    #    Wir müssen nun Vorwärts- und Rückwärts-Parameter explizit angeben.
+    # D) Couplings between states
+    #    We differ between forward and backward couplings
     #    Syntax: (x, y, fwd_idx, bwd_idx)
     #      => t_x_y   => p[fwd_idx]
     #      => t_y_x   => p[bwd_idx]
@@ -2271,7 +2274,7 @@ function model3_1(
     end
     df_koppl_all = DataFrame(rows_all)
 
-    # pro Mode eine gefilterte Kopplungstabelle
+    # Function to create DataFrame for each mode
     function df_koppl_for_mode(m::Symbol)
         subrows = Vector{Dict{Symbol,Any}}()
         for (x,y, fwd_idx, bwd_idx) in couplings
@@ -2293,13 +2296,14 @@ function model3_1(
         return DataFrame(subrows)
     end
 
+    # Create DataFrame for each mode
     modes_all = [:rplus, :dminusomega, :dfr, :dminus, :rfr, :rminusb, :rminusa]
     dict_koppl = Dict(:All => df_koppl_all)
     for m in modes_all
         dict_koppl[m] = df_koppl_for_mode(m)
     end
 
-    # Gesamtdictionary
+    # Full output dictionary
     outputDict = Dict(
         :Model       => "Model 3.1",
         :fitted_mode => mode,
@@ -2313,73 +2317,38 @@ function model3_1(
         :Zeitschritt => dt
     )
 
-    # ------------------------------------------------------
-    # 10) Rückgabe als ReservoirModel (inkl. Dictionary)
-    # ------------------------------------------------------
-    # Falls dein ReservoirModel-Struct kein Dictionary-Feld hat,
-    # kannst du hier natürlich nur das Modell und das Dict getrennt zurückgeben.
     return ReservoirModel(Popu, Bleach, p, t, mode,control, outputDict)
 end
 
-
+"""
+    The following function can fit the model 3.1 to the data. For more information on the model, see the model function model3_1.
+    The function uses a global optimizer of the package "BlackBoxOptim.jl". It is recommend to use the :adaptive_de_rand_1_bin_radiuslimited algorithm 
+    to have a robustfree fit. 
+    This function fits three data sets to one set of parameters. The data sets are:
+        - time_dmin, traces_dmin, use_dmin: data set for the dmin pumped experiment
+        - time_rfr, traces_rfr, use_rfr: data set for the rfr pumped experiment
+        - time_rmin, traces_rmin, use_rmin: data set for the rmin pumped experiment
+    The time argument is the time vector of the corresponding data set, the traces argument is the data set itself 
+    of the used traces and the use argument is a vector which contains the indices of the traces which should be used for the fit.
+    The coha argument is an array. coha[1] contains the index of the mode where we observed the coherent artifact in the rfr pumped experiment.
+    coha[2] contains the indices of the time_vector where the coherent artifact is observed.
+    The function returns three ReservoirModel objects for the three data sets.
+        julia> blackbox_model_3_1(
+                time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+                time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+                time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+                coha;                           # cohrent artifact array
+                dt=0.1                          # time step
+               )
+"""
 function blackbox_model_3_1(
-    time_dmin,traces_dmin,use_dmin,
-    time_rfr,traces_rfr,use_rfr,
-    time_rmin,traces_rmin,use_rmin,
-    coha;
-    dt=0.1
+    time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+    time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+    time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+    coha;                           # cohrent artifact array
+    dt=0.1                          # time step
 )
-    # 1) Define priors
-    initial_params = [    
-        4.5,   # α_dmin
-        -5.11,  # t_0_dmin
-        0.28,   # α_rfr
-        -3.03,  # t_0_rfr
-        0.284,  # α_rmin
-        -5.34,  # t_0_rmin
-        19630,  # relax_rplus
-        19809,  # relax_dminusomega
-        2552,  # relax_dfr
-         1.76,  # relax_dminus
-         7.71,  # relax_rfr
-        17933,  # relax_rminusb
-        18927,  # relax_rminusa
-        17.60,  # rplus_dminusomega
-        19864,  # rplus_dfr
-        16760,  # rplus_dminus
-        19847,  # rplus_rfr
-        17267,  # rplus_rminusb
-        26.53,  # rplus_rminusa
-        181.8,  # dminusomega_dfr
-        19845,  # dminusomega_dminus
-        19899,  # dminusomega_rfr
-        41.81,  # dminusomega_rminusb
-        14862,  # dminusomega_rminusa
-        403.2,  # dfr_dminus
-        19977,  # dfr_rfr
-        19940,  # dfr_rminusb
-        19921,  # dfr_rminusa
-        31.49,  # dminus_rfr
-        19981,  # dminus_rminusb
-        19951,  # dminus_rminusa
-        17.12,  # rfr_rplus
-        19755,  # rfr_dminusomega
-        19998,  # rfr_dfr
-        19536,  # rfr_dminus
-        19037,  # rfr_rminusb
-         8.73,  # rfr_rminusa
-        19133,  # rminusb_rfr
-         1.00,  # rminusb_rminusa
-         8.15,  # rminusa_rfr
-         1.77,  # g_rplus
-         7.38,  # g_dminomega
-        16.98,  # g_dfr
-         1.00,  # g_dminus
-         1.00,  # g_rfr
-         2.90,  # g_rminusb
-         1.27,  # g_rminusa 
-    ]
-    # 2) Define the search space
+    # 1) Define the search space
     lb = vcat(
         [0.0, -20.0], # α_dmin, t_0_dmin
         [0.0, -20.0], # α_rfr, t_0_rfr
@@ -2402,11 +2371,15 @@ function blackbox_model_3_1(
         5.0,              # g_rminusb
         2.0               # g_rminusa
     )
-    # 3) Construct time points for each mode
+    # 2) Construct time vectors for each experiment
     t_model_dmin = collect(time_dmin[1]:dt:time_dmin[end])
     t_model_rfr = collect(time_rfr[1]:dt:time_rfr[end])
     t_model_rmin = collect(time_rmin[1]:dt:time_rmin[end])
 
+    # 3) Define the cost function
+    # The function "cost" computes a total cost based on the weighted squared differences
+    # between the model predictions and experimental traces. It includes penalties to
+    # constrain the simulated populations.
     function cost(
         p::Vector{Float64}
     )
@@ -2419,31 +2392,39 @@ function blackbox_model_3_1(
         koppl_p = p[14:40]     # 27 couplings
         g     = p[41:end]      # 7 degeneracy
 
-        # 2) Construct the model
+        # 2) Construct the models
+        # With the use argument we select a subset of the model to fit to the data
+
+        # dmin pumped experiment
         model_dmin = model3_1(
             t_model_dmin,
             vcat(α_dmin, t0_dmin, relax_p, koppl_p, g),
             mode = :dmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # dmin subset
         model_dmin_used = model_dmin.Bleach[:, use_dmin]
+
+        # rfr pumped experiment
         model_rfr = model3_1(
             t_model_rfr,
             vcat(α_rfr, t0_rfr, relax_p, koppl_p, g),
             mode = :rfr,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rfr subset
         model_rfr_used = model_rfr.Bleach[:, use_rfr]
+        
+        # rmin pumped experiment
         model_rmin = model3_1(
             t_model_rmin,
             vcat(α_rmin, t0_rmin, relax_p, koppl_p, g),
             mode = :rmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rmin subset
         model_rmin_used = model_rmin.Bleach[:, use_rmin]
+
         # 3) Interpolate the predicted signals at the experiment time points
         spl_dmin = [linear_interpolation(t_model_dmin, model_dmin_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_dmin_used,2)]
         spl_rfr  = [linear_interpolation(t_model_rfr, model_rfr_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_rfr_used,2)]
@@ -2454,6 +2435,7 @@ function blackbox_model_3_1(
         v_pred_rmin =  [spl_bleach(time_rmin) for spl_bleach in spl_rmin]
 
         # 4) Combine them to match data's shape.
+        #   Also, replace NaN and Inf values with a large number (1e12)
         pred_dmin = hcat(v_pred_dmin...)
         for i in 1:length(pred_dmin)
             if isinf(pred_dmin[i]) || isnan(pred_dmin[i])
@@ -2472,11 +2454,13 @@ function blackbox_model_3_1(
                 pred_rmin[i] = 1e12
             end
         end
-        # 5) Select time steps without coherence artifact in rfr
+        # 5) Select time steps without coherence artifact in rfr pumped experiment
         selected_idx_rfr = setdiff(1:size(time_rfr,1),last(coha)[1])
         selected_time_rfr = time_rfr[selected_idx_rfr]
 
-        # 6) Weights
+        # 6) Weights 
+        # Use the time_weight function to create special weights for short delays, since we observe 
+        # fast dynamics in the beginning of the experiment.
         w_dmin = ones(size(pred_dmin))
         w_pertrace_dmin = [
             5.0,  # rplus
@@ -2521,31 +2505,43 @@ function blackbox_model_3_1(
             end
         end
         
-        
-        # 6) Data likelihood
-        cost_dmin = sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
-        cost_rfr =  sum(w_rfr .* (traces_rfr - pred_rfr).^2)
-        cost_rmin = sum(w_rmin .* (traces_rmin - pred_rmin).^2)
-        total_cost = cost_dmin + cost_rfr + cost_rmin
+        # 7) Since we sum over all Data points, we need to normalize the weights
+        # to the length of the given dataset
+            length_dmin = length(time_dmin)
+            length_rfr = length(time_rfr)
+            length_rmin = length(time_rmin)
+            norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
+            norm_weight ./= maximum(norm_weight)
+            cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
+            cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
+            cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
+        # 8) penalties
+        # We define a maximum Population with max_P
+        # If the Population is above this value, we add a penalty to the cost function
+            max_P = 0.1
+        # Squared sum over all Poplulation timesteps which are above the threshold
+            P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
+                norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
+                norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
+            total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
+
 
         return total_cost
     end
+
+    # Use bboptimize to find the best parameters
     println("Starting optimization...")
 
     result = bboptimize(
-        cost, # cost functionw_
-        initial_params;          # initial guess
-        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)],
+        cost; # cost function
+        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)], # search space
         Method       = :adaptive_de_rand_1_bin_radiuslimited ,   # or :cmaes, :genetic, etc.
-        #NThreads=Threads.nthreads()-1,
         MaxSteps     = 10_000_000, # or some large budget
         PopulationSize = 2_000,  # can try bigger for better coverage
         TraceMode    = :verbose 
     )
-
-    #println("Finished. Best fitness = ", minimum_fitness(result))
     println("Best solution = ", best_candidate(result))
-    # 7) Extract the parameters
+    # 9) Extract the parameters
         ## Pumppulse
             ### dmin
                 pulse_params_dmin  =  best_candidate(result)[1:2]
@@ -2559,7 +2555,7 @@ function blackbox_model_3_1(
             kopplungs_params = best_candidate(result)[14:40]
         ## Degeneracy
             g = best_candidate(result)[41:end]
-    # 8) Create the model
+    # 10) Create the model
 
     best_model_dmin  = model3_1(
         t_model_dmin,
@@ -2585,15 +2581,18 @@ end
 
 """
     Modell 2.3
-    Aus dem Wellenlängenscan geht hervor, dass wenn wir "rmin" pumpen, wir nicht diskret rmina pumpen, sondern auch gleichzeitig rminb. Weswegen hier ein zusätzlicher 
-    Pumppulsparameter hinzugefügt wird, elcher immer 0 ist wenn rmin nicht gepumpt wird.
-    Wir betrachten Modell 2.3 als Weiterentwicklung von Modell 2.2.
+    Based on wavelength-scan measurements, it was observed that when pumping at "rmin", the system does not 
+    selectively excite just one mode (rmina), but also simultaneously excites rminb. To account for this, an 
+    additional pump pulse parameter was introduced. This parameter is always set to zero when "rmin" is not pumped.
+    Model 2.3 is considered a refinement of Model 2.2.
     Modell 2.2:
-    Beschreibt die Dynamik aller Moden, welche eine kontinuierliche "Anderung in Experimenten (ODT,UDT,HT)
-    aufweisen. Die Moden sind: rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa.
-    Jede Mode kann durch einen Laser mit den Parametern α und t₀ angeregt werden. Daf"ur kwarg `mode=:dmin`etc. verwenden.
-    Jede Mode kann relaxieren p[3:9] oder mit den anderen Moden wechselwirken p[10:30].
-    Weiterhin kann die Entartung der Moden mit p[31:37] eingestellt werden.
+    Model 2.2 describes the dynamics of all modes that exhibit continuous changes in experiments (ODT, UDT, HT).
+    The modes included in this model are: rplus, dminusomega, dfr, dminus, rfr, rminusb, and rminusa.
+    Each mode can be excited by a laser using the parameters α and t₀, which can be specified via the mode 
+    keyword argument (e.g., mode=:dmin).
+    Each mode can also undergo relaxation, controlled by parameters p[3:9], or interact with other modes 
+    via coupling terms defined by p[10:30].
+    Additionally, mode degeneracy can be set using parameters p[31:37].
 """
 function model2_3(
     t,
@@ -2614,7 +2613,6 @@ function model2_3(
 
     #---------------------------------------------------------
     # 2) Unpack parameters from p:
-    #    p[1], p[2], etc.  (Keep same indexing as your code.)
     #---------------------------------------------------------
     # Laser parameters
     α        = p[1]   # amplitude scaling of laser pulse
@@ -2623,9 +2621,9 @@ function model2_3(
         α_rb = p[2]
     end
     t_0      = p[3]   # center of the Gaussian pulse
-    σ        = 6.67   # fixed pulse width (was hard-coded)
+    σ        = 6.67   # fixed pulse width to observed pulse width of pump pulse
 
-    # Relaxation rates (to ground state) 
+    # Relaxation rates to ground state 
     relax_rplus       = 1/p[4]
     relax_dminusomega = 1/p[5]
     relax_dfr         = 1/p[6]
@@ -2634,8 +2632,8 @@ function model2_3(
     relax_rminusb     = 1/p[9]
     relax_rminusa     = 1/p[10]
 
-    # Coupling constants between states (original indexing)
-    # For simplicity, I'll rename them 'k_xy' to emphasize
+    # Coupling constants between states 
+    # For simplicity, I'll rename them 'k_x_y' to emphasize
     # they are coupling rates. Each will get multiplied by
     # the product of degeneracies g_x*g_y for symmetrical flow.
 
@@ -2689,14 +2687,14 @@ function model2_3(
     k_rminusa_rminusb     = k_rminusb_rminusa
 
     # 3) Degeneracy of the states:
-    # p[31] is g_d, while g_r, g_d_omega are hard-coded to 1 below
+    # only fixed values for rplus and rfr
     g_rplus   = 1.0 #p[32]
     g_d_omega = p[33]
     g_dfr     = p[34]
     g_dminus  = p[35]
     g_rfr     = 1.0 #p[36]
     g_rminb   = p[37]
-    g_rmina   = 2.0 #p[38]
+    g_rmina   = p[38]
 
     # We'll store them in an array so we can do bleach:
     # State order: 
@@ -2733,11 +2731,11 @@ function model2_3(
 
 
     #---------------------------------------------------------
-    # 7) Time stepping with explicit Euler:
+    # 6) Time stepping with explicit Euler:
     #    We'll update all 7 states at each time step.
     #
     #    Key change for symmetrical coupling:
-    #      * For a coupling k_xy between state x and y,
+    #      * For a coupling k_x_y between state x and y,
     #        we multiply by (G[x]*G[y]) in BOTH equations:
     #
     #        Popu[i,x] += + k_xy * G[x]*G[y]*(Popu[i-1,y] - Popu[i-1,x])
@@ -3012,10 +3010,14 @@ function model2_3(
         ) * dt
 
         #-------------
-        # Control
+        # 7) Control
+        # Checks if the balance of the populations is correct at each timestep
         #-------------
-
+        
+        # 1. Integral of Laser Input 
         control[i,1] = control[i-1,1] + (laser_here + α_rb * f_g[i]) * dt
+
+        # 2. Overall Population of all substates 
         control[i,2] = G[1] * Popu[i,1] + (
                G[2] * Popu[i,2] 
              + G[3] * Popu[i,3] 
@@ -3025,6 +3027,7 @@ function model2_3(
              + G[7] * Popu[i,7] 
         )
 
+        # 3. Relaxed Population of all substates
         control[i,3] = control[i-1,3] + (
             + G[1] * relax_rplus * Popu[i-1,1]
             + G[2] * relax_dminusomega * Popu[i-1,2]
@@ -3034,7 +3037,8 @@ function model2_3(
             + G[6] * relax_rminusb * Popu[i-1,6]
             + G[7] * relax_rminusa * Popu[i-1,7]
         ) * dt
-        
+
+        # 4. Sum of Laser Input, Overall Population and Relaxed Population should equal to 0 at every timestep
         control[i,4] = control[i,1] - control[i,2] - control[i,3]
     end
 
@@ -3047,14 +3051,13 @@ function model2_3(
     end
 
 # ------------------------------------------------------
-    # 9) Dictionary aufbauen (DataFrames, etc.)
+    # 9) Dictionary (DataFrames, etc.)
     # ------------------------------------------------------
 
     # A) Puls
     df_puls = DataFrame(alpha = p[1],alpha_rb = p[2], t_0 = p[3])
 
     # B) Relaxation
-    #    p[3..9], 7 Parameter => rplus, dminusomega, dfr, dminus, rfr, rminusb, rminusa
     modes_relax = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_relax = DataFrame(
         Mode    = modes_relax,
@@ -3062,15 +3065,14 @@ function model2_3(
     )
 
     # C) Entartung
-    #    p[37..43] => 7 Parameter
     modes_deg = ["rplus", "dminusomega", "dfr", "dminus", "rfr", "rminusb", "rminusa"]
     df_entartung = DataFrame(
         Mode = modes_deg,
         g    = G
     )
 
-    # D) Kopplungen (jetzt mit asymmetrischen Einträgen)
-    #    Wir müssen nun Vorwärts- und Rückwärts-Parameter explizit angeben.
+    # D) Couplings between states
+    #    We differ between forward and backward couplings even though they are the same.
     #    Syntax: (x, y, fwd_idx, bwd_idx)
     #      => t_x_y   => p[fwd_idx]
     #      => t_y_x   => p[bwd_idx]
@@ -3078,27 +3080,27 @@ function model2_3(
         (:rplus,       :dminusomega, 11, 11),
         (:rplus,       :dfr,         12, 12),
         (:rplus,       :dminus,      13, 13),
-        (:rplus,       :rfr,         14, 14),  # asym
+        (:rplus,       :rfr,         14, 14),  
         (:rplus,       :rminusb,     15, 15),
         (:rplus,       :rminusa,     16, 16),
 
         (:dminusomega, :dfr,         17, 17),
         (:dminusomega, :dminus,      18, 18),
-        (:dminusomega, :rfr,         19, 19),  # asym
+        (:dminusomega, :rfr,         19, 19),  
         (:dminusomega, :rminusb,     20, 20),
         (:dminusomega, :rminusa,     21, 21),
 
         (:dfr,         :dminus,      22, 22),
-        (:dfr,         :rfr,         23, 23),  # asym
+        (:dfr,         :rfr,         23, 23),  
         (:dfr,         :rminusb,     24, 24),
         (:dfr,         :rminusa,     25, 25),
 
-        (:dminus,      :rfr,         26, 26),  # asym
+        (:dminus,      :rfr,         26, 26),  
         (:dminus,      :rminusb,     27, 27),
         (:dminus,      :rminusa,     28, 28),
 
-        (:rfr,         :rminusb,     29, 29),  # asym
-        (:rfr,         :rminusa,     30, 30),  # asym
+        (:rfr,         :rminusb,     29, 29),  
+        (:rfr,         :rminusa,     30, 30),  
 
         (:rminusb,     :rminusa,     31, 31)
     ]
@@ -3119,7 +3121,7 @@ function model2_3(
     end
     df_koppl_all = DataFrame(rows_all)
 
-    # pro Mode eine gefilterte Kopplungstabelle
+    # Function to create DataFrame for each mode
     function df_koppl_for_mode(m::Symbol)
         subrows = Vector{Dict{Symbol,Any}}()
         for (x,y, fwd_idx, bwd_idx) in couplings
@@ -3140,14 +3142,14 @@ function model2_3(
         end
         return DataFrame(subrows)
     end
-
+    # Create DataFrame for each mode
     modes_all = [:rplus, :dminusomega, :dfr, :dminus, :rfr, :rminusb, :rminusa]
     dict_koppl = Dict(:All => df_koppl_all)
     for m in modes_all
         dict_koppl[m] = df_koppl_for_mode(m)
     end
 
-    # Gesamtdictionary
+    # Full output dictionary
     outputDict = Dict(
         :Model       => "Model 2.3",
         :fitted_mode => mode,
@@ -3161,69 +3163,38 @@ function model2_3(
         :Zeitschritt => dt
     )
 
-    # ------------------------------------------------------
-    # 10) Rückgabe als ReservoirModel (inkl. Dictionary)
-    # ------------------------------------------------------
-    # Falls dein ReservoirModel-Struct kein Dictionary-Feld hat,
-    # kannst du hier natürlich nur das Modell und das Dict getrennt zurückgeben.
     return ReservoirModel(Popu, Bleach, p, t, mode,control, outputDict)
 end
 
+"""
+    The following function can fit the model 2.3 to the data. For more information on the model, see the model function model2_3.
+    The function uses a global optimizer of the package "BlackBoxOptim.jl". It is recommend to use the :adaptive_de_rand_1_bin_radiuslimited algorithm 
+    to have a robustfree fit. 
+    This function fits three data sets to one set of parameters. The data sets are:
+        - time_dmin, traces_dmin, use_dmin: data set for the dmin pumped experiment
+        - time_rfr, traces_rfr, use_rfr: data set for the rfr pumped experiment
+        - time_rmin, traces_rmin, use_rmin: data set for the rmin pumped experiment
+    The time argument is the time vector of the corresponding data set, the traces argument is the data set itself 
+    of the used traces and the use argument is a vector which contains the indices of the traces which should be used for the fit.
+    The coha argument is an array. coha[1] contains the index of the mode where we observed the coherent artifact in the rfr pumped experiment.
+    coha[2] contains the indices of the time_vector where the coherent artifact is observed.
+    The function returns three ReservoirModel objects for the three data sets.
+        julia> blackbox_model_3_2(
+                time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+                time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+                time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+                coha;                           # cohrent artifact array
+                dt=0.1                          # time step
+               )
+"""
 function blackbox_model_2_3(
-    time_dmin,traces_dmin,use_dmin,
-    time_rfr,traces_rfr,use_rfr,
-    time_rmin,traces_rmin,use_rmin,
-    coha;
-    dt=0.1
+    time_dmin,traces_dmin,use_dmin, # data set for the dmin pumped experiment
+    time_rfr,traces_rfr,use_rfr,    # data set for the rfr pumped experiment
+    time_rmin,traces_rmin,use_rmin, # data set for the rmin pumped experiment
+    coha;                           # cohrent artifact array
+    dt=0.1                          # time step
 )
-    # 1) Define priors
-    initial_params = [    
-        0.608,  # α_dmin
-        1.695,  # α_rb_dmin
-        -0.79,  # t_0_dmin
-        1.753,  # α_rfr
-        0.352,  # α_rb_rfr
-        -5.20,  # t_0_rfr
-        0.061,  # α_rmin
-        4.998,  # α_rb_rmin
-        -3.67,  # t_0_rmin
-        11231,  # relax_rplus
-        10348,  # relax_dminusomega
-        9855,   # relax_dfr
-        18263,  # relax_dminus
-        3.040,  # relax_rfr
-        9188,   # relax_rminusb
-        19.09,  # relax_rminusa
-        14462,  # rplus_dminusomega
-        9107,   # rplus_dfr
-        14.79,  # rplus_dminus
-        11972,  # rplus_rfr
-        3.606,  # rplus_rminusb
-        14049,  # rplus_rminusa
-        153.4,  # dminusomega_dfr
-        311.5,  # dminusomega_dminus
-        15271,  # dminusomega_rfr
-        36.73,  # dminusomega_rminusb
-        13196,  # dminusomega_rminusa
-        813.9,  # dfr_dminus
-        19927,  # dfr_rfr
-        15704,  # dfr_rminusb
-        17640,  # dfr_rminusa
-        1376,   # dminus_rfr
-        12125,  # dminus_rminusb
-        595.7,  # dminus_rminusa
-        14.65,  # rfr_rminusb
-        349.1,  # rfr_rminusa
-        17432,  # rminusb_rminusa
-        4.525,  # g_rplus
-        4.591,  # g_dminomega
-        8.731,  # g_dfr
-        16.05,  # g_dminus
-        1.980,  # g_rfr
-        1.403,  # g_rminusb
-        1.519,  # g_rminusa 
-    ]
-    # 2) Define the search space
+    # 1) Define the search space
     lb = vcat(
         [0.0, 0.0, -20.0], # α_dmin, α_rb_dmin, t_0_dmin
         [0.0, 0.0, -20.0], # α_rfr,  α_rb_rfr,  t_0_rfr
@@ -3252,11 +3223,15 @@ function blackbox_model_2_3(
         17.0,              # g_rminusb
         2.0               # g_rminusa
     )
-    # 3) Construct time points for each mode
+    # 2) Construct time vectors for each experiment
     t_model_dmin = collect(time_dmin[1]:dt:time_dmin[end])
     t_model_rfr = collect(time_rfr[1]:dt:time_rfr[end])
     t_model_rmin = collect(time_rmin[1]:dt:time_rmin[end])
 
+    # 3) Define the cost function
+    # The function "cost" computes a total cost based on the weighted squared differences
+    # between the model predictions and experimental traces. It includes penalties to
+    # constrain the simulated populations.
     function cost(
         p::Vector{Float64}
     )
@@ -3270,30 +3245,38 @@ function blackbox_model_2_3(
         g     = p[38:end]      # 7 degeneracy
 
         # 2) Construct the model
+        # With the use argument we select a subset of the model to fit to the data
+
+        # dmin pumped experiment
         model_dmin = model2_3(
             t_model_dmin,
             vcat(α_dmin,α_rb_dmin, t0_dmin, relax_p, koppl_p, g),
             mode = :dmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # dmin subset
         model_dmin_used = model_dmin.Bleach[:, use_dmin]
+
+        # rfr pumped experiment
         model_rfr = model2_3(
             t_model_rfr,
             vcat(α_rfr, α_rb_rfr, t0_rfr, relax_p, koppl_p, g),
             mode = :rfr,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rfr subset
         model_rfr_used = model_rfr.Bleach[:, use_rfr]
+
+        # rmin pumped experiment
         model_rmin = model2_3(
             t_model_rmin,
             vcat(α_rmin,α_rb_rmin, t0_rmin, relax_p, koppl_p, g),
             mode = :rmin,
             dt=dt
         )
-        # We'll use only a subset of the excited states since not all modes show a continous change
+        # rmin subset
         model_rmin_used = model_rmin.Bleach[:, use_rmin]
+
         # 3) Interpolate the predicted signals at the experiment time points
         spl_dmin = [linear_interpolation(t_model_dmin, model_dmin_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_dmin_used,2)]
         spl_rfr  = [linear_interpolation(t_model_rfr, model_rfr_used[:,i], extrapolation_bc=Line()) for i in 1:size(model_rfr_used,2)]
@@ -3304,6 +3287,7 @@ function blackbox_model_2_3(
         v_pred_rmin =  [spl_bleach(time_rmin) for spl_bleach in spl_rmin]
 
         # 4) Combine them to match data's shape.
+        #   Also, replace NaN and Inf values with a large number (1e12)
         pred_dmin = hcat(v_pred_dmin...)
         for i in 1:length(pred_dmin)
             if isinf(pred_dmin[i]) || isnan(pred_dmin[i])
@@ -3322,11 +3306,13 @@ function blackbox_model_2_3(
                 pred_rmin[i] = 1e12
             end
         end
-        # 5) Select time steps without coherence artifact in rfr
+        # 5) Select time steps without coherence artifact in rfr pumped experiment
         selected_idx_rfr = setdiff(1:size(time_rfr,1),last(coha)[1])
         selected_time_rfr = time_rfr[selected_idx_rfr]
 
-        # 6) Weights
+        # 6) Weights 
+        # Use the time_weight function to create special weights for short delays, since we observe 
+        # fast dynamics in the beginning of the experiment.
         w_dmin = ones(size(pred_dmin))
         w_pertrace_dmin = [
             5.0,  # rplus
@@ -3372,41 +3358,42 @@ function blackbox_model_2_3(
         end
         
         
-        # 6) Data likelihood
-        length_dmin = length(time_dmin)
-        length_rfr = length(time_rfr)
-        length_rmin = length(time_rmin)
-        norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
-        norm_weight ./= maximum(norm_weight)
-        cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
-        cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
-        cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
-        # 7) Penaltys
-        max_P = 0.1
+        # 7) Since we sum over all Data points, we need to normalize the weights
+        # to the length of the given dataset
+            length_dmin = length(time_dmin)
+            length_rfr = length(time_rfr)
+            length_rmin = length(time_rmin)
+            norm_weight = [1/length_dmin,1/length_rfr,1/length_rmin]
+            norm_weight ./= maximum(norm_weight)
+            cost_dmin = norm_weight[1] * sum(w_dmin .* (traces_dmin - pred_dmin).^2 )
+            cost_rfr =  norm_weight[2] * sum(w_rfr .* (traces_rfr - pred_rfr).^2)
+            cost_rmin = norm_weight[3] * sum(w_rmin .* (traces_rmin - pred_rmin).^2)
+        # 8) Penaltys
+        # We define a maximum Population with max_P
+        # If the Population is above this value, we add a penalty to the cost function
+            max_P = 0.1
         # Squared sum over all Poplulation timesteps which are above the threshold
-        P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
-            norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
-            norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
-        total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
+            P_penalty = norm_weight[1] * sum(max.(model_dmin.Population .- max_P, 0.0).^2) +
+                norm_weight[2] * sum(max.(model_rfr.Population .- max_P, 0.0).^2) +
+                norm_weight[3] * sum(max.(model_rmin.Population .- max_P, 0.0).^2)
+            total_cost = cost_dmin + cost_rfr + cost_rmin + P_penalty
 
         return total_cost
     end
+
+    # Use bboptimize to find the best parameters
     println("Starting optimization...")
 
     result = bboptimize(
-        cost, # cost functionw_
-        initial_params;          # initial guess
-        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)],
+        cost; # cost function
+        SearchRange = [(lb[i], ub[i]) for i in 1:length(lb)], #search space
         Method       = :dxnes,#:adaptive_de_rand_1_bin_radiuslimited ,   # or :cmaes, :genetic, etc.
-        #NThreads=Threads.nthreads()-1,
         MaxSteps     = 100_000, # or some large budget
         PopulationSize = 1_000,  # can try bigger for better coverage
         TraceMode    = :verbose 
     )
-
-    #println("Finished. Best fitness = ", minimum_fitness(result))
     println("Best solution = ", best_candidate(result))
-    # 7) Extract the parameters
+    # 9) Extract the parameters
         ## Pumppulse
             ### dmin
                 pulse_params_dmin  =  best_candidate(result)[1:3]
@@ -3420,7 +3407,8 @@ function blackbox_model_2_3(
             kopplungs_params = best_candidate(result)[17:37]
         ## Degeneracy
             g = best_candidate(result)[38:end]
-    # 8) Create the model
+
+    # 10) Create the the fitted model
 
     best_model_dmin  = model2_3(
         t_model_dmin,
@@ -3485,11 +3473,18 @@ end
 
 
 """
+    This function is used to create a time dependent weight for the cost function.
+        julia> time_weigtht(3; t1=0, t2=5, weight=3.0)
+        3.0
+        julia> time_weigtht(6; t1=0, t2=5, weight=3.0)
+        1.0
 """
 function time_weight(t;
+    t1 = -15,
+    t2 = 30,
     weight = 3.0
     )
-    if -15.0 <= t < 30.0
+    if t1 <= t < t2
         return weight  # heavier weight for early times
     else
         return 1.0   # normal weight for later times
