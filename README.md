@@ -76,8 +76,8 @@ Example usage:
     julia> exp_dmin = h5open(dir_ODT_dmin, "r") do fid read(fid) end
     julia> exp_rfr = h5open(dir_ODT_rfr, "r") do fid read(fid) end
     julia> exp_rmin = h5open(dir_ODT_rmin, "r") do fid read(fid) end
-    julia> coha = [3,[19:31]]       # In Mode [3] we obeserve the coherent artifact at the times exp_dmin["Data"]["dltime"][19:31]
-    julia> dt = 0.1                 # in ps
+    julia> coha = [3,[19:31]]       # In Mode [3] we observe the coherent artifact at the times in exp_dmin["Data"]["dltime"][19:31]
+    julia> dt = 0.1                 # time increment in ps
     julia> sel_dmin = [1,5,6,7]     # selected modes for the dmin pumped experiment
     julia> sel_rfr = [1,3,5,7]      # selected modes for the rfr pumped experiment
     julia> sel_rmin = [1,2,5,6,7]   # selected modes for the rmin pumped experiment
@@ -107,4 +107,4 @@ In addition to the provided fitting examples, it is also possible to define cust
         ) 
 ```
 
-> ⚠️  **Important:** Please replace all placeholders (such as `dir_ODT_dmin`, `dir_ODT_rfr`, and `dir_ODT_rmin`) with the actual paths and filenames in `Data`.
+> ⚠️  **Important:** Please replace all placeholders (such as `dir`, `dir_ODT_dmin`, `dir_ODT_rfr`, and `dir_ODT_rmin`) with the actual paths and filenames in `Data`.
