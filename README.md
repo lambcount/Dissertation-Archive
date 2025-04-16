@@ -1,7 +1,7 @@
 # Dissertation-Archive
 
 This repository contains the data and models presented in my dissertation (accessible via [DuEPublico link]).
-The entire repository is also archived on CERN's cloud storage (DOI: ).
+The entire repository is also archived on CERN's cloud storage (DOI: 10.5281/zenodo.15228464).
 
 All relevant parameters and spectra data can be found in HDF5 files under the `Data/` directory, alongside the corresponding fitting results discussed in the dissertation. Parameters relevant for reproducing these fits are also included in these files.
 
